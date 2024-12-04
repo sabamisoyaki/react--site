@@ -1,0 +1,102 @@
+/* styles.css */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+}
+
+body {
+    display: flex;
+    background-color: #f5f5f5;
+    min-height: 100vh;
+}
+
+/* サイドバー */
+.sidebar {
+    background-color: #e0e0e0;
+    padding: 20px 10px; /* 左右のパディングのみ */
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 150px;
+    height: 100vh; /* 画面全体の高さに合わせる */
+    position: fixed; /* 固定表示 */
+    top: 0;
+    left: 0;
+}
+
+.sidebar button {
+    background-color: #ccc;
+    border: none;
+    padding: 10px;
+    border-radius: 5px;
+    text-align: left;
+}
+
+/* メインコンテンツ */
+.main-content {
+    margin-left: 150px; /* サイドバーの幅に合わせて調整 */
+    width: calc(100% - 150px);
+}
+
+/* ヘッダー */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #d3d3d3;
+    padding: 10px 20px;
+}
+
+.search-bar {
+    display: flex;
+    align-items: center;
+    background-color: #ddd;
+    padding: 5px;
+    border-radius: 5px;
+    width: 60%;
+}
+
+.search-bar input {
+    border: none;
+    outline: none;
+    background: none;
+    width: 100%;
+}
+
+.profile-icon {
+    font-size: 24px;
+}
+
+/* コンテンツグリッド */
+.content-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    padding: 20px 0;
+}
+
+.grid-item {
+    background-color: white;
+    border: 1px solid #ccc;
+    padding: 10px;
+    text-align: center;
+    min-height: 150px;
+}
+
+/* リスト形式のコンテンツ */
+.content-list {
+    margin-top: 20px;
+    background-color: #ffffff;
+    border-top: 1px solid #ccc;
+}
+
+.list-item {
+    border-top: 1px solid #ccc;
+    padding: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}

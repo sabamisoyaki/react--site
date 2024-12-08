@@ -98,8 +98,8 @@ function Clip({ name, title, epnum, username, icon, rating }) {
 export default function app() {
 
     // APIのURL
-    const apiUrl = "";//URLを指定
-
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    console.log("URL",process.env.NEXT_PUBLIC_API_URL);
     // ステートでデータとエラーメッセージを管理
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);

@@ -92,11 +92,7 @@ function Clip({ name, title, epnum, username, icon, rating }) {
   );
 }
 
-
-
-
-export default function app() {
-
+function ClipList(){
     // APIのURL
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     console.log("URL",process.env.NEXT_PUBLIC_API_URL);
@@ -125,26 +121,9 @@ export default function app() {
   
       fetchData();
     }, []); // 初回レンダリング時のみ実行
-  
-
-  return (
-<>
-  <Sidebar/>
-
-  <div className="main-content">
-  <HeadSearch/>
-
-  <section className="content-grid">
-
-    <PlayList title="test" epnum="ep1" mylistname="マイリスト１" username="ユーザー名" icon="prime"/>
-    <PlayList title="test" epnum="ep10" mylistname="マイリスト5" username="ユーザー名" icon="netflix"/>
-    
-
-    
-
-  </section>
-
-  <section className="content-list">
+  return(
+    <>
+    <section className="content-list">
   {/* 最初の Clip */}
   <Clip 
     name="切り抜き" 
@@ -171,6 +150,36 @@ export default function app() {
     icon="★" 
   />
 </section>
+
+    </>
+  );
+
+}
+
+
+
+
+export default function app() {
+
+
+  return (
+<>
+  <Sidebar/>
+
+  <div className="main-content">
+  <HeadSearch/>
+
+  <section className="content-grid">
+
+    <PlayList title="test" epnum="ep1" mylistname="マイリスト１" username="ユーザー名" icon="prime"/>
+    <PlayList title="test" epnum="ep10" mylistname="マイリスト5" username="ユーザー名" icon="netflix"/>
+    
+
+    
+
+  </section>
+  <ClipList/>
+  
 
 
 </div>

@@ -1,6 +1,8 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState ,useEffect} from "react";
 import './styles.css';
+
+//import getData from'./api.js';
 
 
 function Sidebar(){//リンク
@@ -55,7 +57,7 @@ function PlayList({ title, epnum , mylistname, username ,icon}){
   let imageSrc;
   switch(icon){
     case "netflix":
-      imageSrc = "N";//外部リンクに変える
+      imageSrc = "N";//ローカルを参照　./image/
       break;
     case "prime":
       imageSrc ="P";
@@ -79,16 +81,51 @@ function PlayList({ title, epnum , mylistname, username ,icon}){
 }
 
 function Clip({ name, title, epnum, username, icon, rating }) {
+  //iconを☆するかどうかはともかくボタンにする
+
   return (
     <div className="list-item">
       <p>
-        {name} — {title} {epnum} — {username} {icon} {rating} +
+        {name} — {title} {epnum} — {username} <button>{icon} </button> {rating} +
       </p>
     </div>
   );
 }
 
-export default function TodoList() {
+
+
+
+export default function app() {
+
+    // APIのURL
+    const apiUrl = "";//URLを指定
+
+    // ステートでデータとエラーメッセージを管理
+    const [data, setData] = useState(null);
+    const [error, setError] = useState(null);
+  
+    // データを取得する関数
+    useEffect(() => {
+      const fetchData = async () => {
+        try {
+          const response = await fetch(apiUrl);
+          if (!response.ok) {
+            throw new Error(`HTTPエラー! ステータスコード: ${response.status}`);
+          }
+          const json = await response.json();
+
+          console.log("取得したデータ:", json); // データ構造を確認
+          setData(json); // データをステートに保存
+        } catch (err) {
+          console.error("データ取得エラー:", err);
+          setError(err.message); // エラーメッセージをステートに保存
+
+        }
+      };
+  
+      fetchData();
+    }, []); // 初回レンダリング時のみ実行
+  
 
   return (
 <>
@@ -108,11 +145,37 @@ export default function TodoList() {
   </section>
 
   <section className="content-list">
-      <Clip name="切り抜き名称" title="作品名" epnum="ep1" username="ユーザー名" icon="★"  />
-      <Clip name="別の切り抜き" title="別作品" epnum="ep2" username="ユーザー名" icon="☆" />
+  {/* 最初の Clip */}
+  <Clip 
+    name="切り抜き" 
+    title={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].title : "タイトルがありません"} 
+    epnum={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].epnumber : "エラー"} 
+    username="ユーザー名" 
+    icon="★" 
+  />
 
-  </section>
+  {/* 別の Clip */}
+
+  <Clip 
+    name="切り抜き" 
+    title={data && data.allReceivedData && data.allReceivedData[1] ? data.allReceivedData[1].title : "タイトルがありません"} 
+    epnum={data && data.allReceivedData && data.allReceivedData[1] ? data.allReceivedData[1].epnumber : "エラー"} 
+    username="ユーザー名" 
+    icon="★" 
+  />
+  <Clip 
+    name="切り抜き" 
+    title={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].title : "タイトルがありません"} 
+    epnum={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].epnumber : "エラー"} 
+    username="ユーザー名" 
+    icon="★" 
+  />
+</section>
+
+
 </div>
+
+
 </>
 );
 }

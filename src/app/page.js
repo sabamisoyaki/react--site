@@ -32,10 +32,7 @@ function HeadSearch(){ //ヘッダー
 
   //ボックス内を消去
 
-  };
-
-
-  
+  };  
   return(
       <header className="header">
       <h1>サブスク切り抜き</h1>
@@ -97,10 +94,10 @@ function Clip({ name, title, epnum, username, icon, rating, url }) {
   let urlLink;
   switch (icon) {
     case "netflix":
-      urlLink = "https://www.netflix.com/".replace(/\/$/, "") + "/" + url.replace(/^\//, "");
+      urlLink = "https://www.netflix.com"+url;
       break;
     case "prime":
-      urlLink = "https://www.amazon.co.jp/primevideo".replace(/\/$/, "") + "/" + url.replace(/^\//, "");
+      urlLink = "https://www.amazon.co.jp/primevideo"+url;
       break;
     default:
       urlLink = null; // Handle unknown cases
@@ -168,7 +165,7 @@ function ClipList(){
     name="切り抜き" 
     title={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].title : "タイトルがありません"} 
     epnum={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].epnumber : "エラー"}
-    url  ={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].url : "エラー"}
+    url  ={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].URL : "エラー"}
     username="ユーザー名" 
     icon="netflix" 
   />
@@ -179,15 +176,17 @@ function ClipList(){
     name="切り抜き" 
     title={data && data.allReceivedData && data.allReceivedData[1] ? data.allReceivedData[1].title : "タイトルがありません"} 
     epnum={data && data.allReceivedData && data.allReceivedData[1] ? data.allReceivedData[1].epnumber : "エラー"} 
+    url  ={data && data.allReceivedData && data.allReceivedData[1] ? data.allReceivedData[1].URL : "エラー"}
     username="ユーザー名" 
-    icon="★" 
+    icon="netflix" 
   />
   <Clip 
     name="切り抜き" 
     title={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].title : "タイトルがありません"} 
-    epnum={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].epnumber : "エラー"} 
+    epnum={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].epnumber : "エラー"}
+    url  ={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].URL : "エラー"} 
     username="ユーザー名" 
-    icon="★" 
+    icon="netflix" 
   />
 </section>
 
@@ -195,6 +194,7 @@ function ClipList(){
   );
 
 }
+//{data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].url : "エラー"}
 
 
 

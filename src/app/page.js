@@ -2,7 +2,6 @@
 import React, { useState ,useEffect} from "react";
 import './styles.css';
 
-//import getData from'./api.js';
 
 
 function Sidebar(){//リンク
@@ -32,7 +31,7 @@ function HeadSearch(){ //ヘッダー
   //受け取ったデータをもって画面移行1-5
 
   //ボックス内を消去
-    searchText = "";
+
   };
 
 
@@ -80,21 +79,61 @@ function PlayList({ title, epnum , mylistname, username ,icon}){
   );
 }
 
-function Clip({ name, title, epnum, username, icon, rating }) {
-  //iconを☆するかどうかはともかくボタンにする
+function PlayListCluster(){
+
+
+  return(
+    <>
+    <section className="content-grid">
+    <PlayList title="test" epnum="ep1" mylistname="マイリスト１" username="ユーザー名" icon="prime"/>
+    <PlayList title="test" epnum="ep10" mylistname="マイリスト5" username="ユーザー名" icon="netflix"/>
+    </section>
+    </>
+  );
+}
+
+function Clip({ name, title, epnum, username, icon, rating, url }) {
+  // Link generation
+  let urlLink;
+  switch (icon) {
+    case "netflix":
+      urlLink = "https://www.netflix.com/".replace(/\/$/, "") + "/" + url.replace(/^\//, "");
+      break;
+    case "prime":
+      urlLink = "https://www.amazon.co.jp/primevideo".replace(/\/$/, "") + "/" + url.replace(/^\//, "");
+      break;
+    default:
+      urlLink = null; // Handle unknown cases
+  }
 
   return (
     <div className="list-item">
       <p>
-        {name} — {title} {epnum} — {username} <button>{icon} </button> {rating} +
+        {name} — {title} {epnum} — {username}{" "}
+        <button
+          onClick={() => {
+            if (urlLink) {
+              window.open(urlLink, "_blank");
+            } else {
+              alert("Invalid link or unknown service");
+            }
+          }}
+        >
+          {icon}
+        </button>{" "}
+        {rating} +
       </p>
     </div>
   );
 }
 
+
+
 function ClipList(){
+
+    //  forで繰り返す
     // APIのURL
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;//処理ごとにURLを変更する。
     console.log("URL",process.env.NEXT_PUBLIC_API_URL);
     // ステートでデータとエラーメッセージを管理
     const [data, setData] = useState(null);
@@ -128,9 +167,10 @@ function ClipList(){
   <Clip 
     name="切り抜き" 
     title={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].title : "タイトルがありません"} 
-    epnum={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].epnumber : "エラー"} 
+    epnum={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].epnumber : "エラー"}
+    url  ={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].url : "エラー"}
     username="ユーザー名" 
-    icon="★" 
+    icon="netflix" 
   />
 
   {/* 別の Clip */}
@@ -169,16 +209,9 @@ export default function app() {
   <div className="main-content">
   <HeadSearch/>
 
-  <section className="content-grid">
 
-    <PlayList title="test" epnum="ep1" mylistname="マイリスト１" username="ユーザー名" icon="prime"/>
-    <PlayList title="test" epnum="ep10" mylistname="マイリスト5" username="ユーザー名" icon="netflix"/>
-    
-
-    
-
-  </section>
   <ClipList/>
+  <PlayListCluster/>
   
 
 

@@ -174,7 +174,7 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
 
 
 
-function ClipList(clipApiUrl){
+function ClipList({clipApiUrl}){
 
     // APIのURL
     

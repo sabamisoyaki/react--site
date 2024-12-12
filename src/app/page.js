@@ -3,7 +3,6 @@ import React, { useState ,useEffect} from "react";
 import './styles.css';
 
 
-
 function Sidebar(){//リンク
   return (
   <aside className="sidebar">
@@ -49,7 +48,7 @@ function HeadSearch(){ //ヘッダー
 }
 
 
-function PlayList({ title, epnum , mylistname, username ,icon}){
+function PlayList({ title, epnum , mylistname, username ,icon,data}){
   let imageSrc;
   switch(icon){
     case "netflix":
@@ -61,6 +60,7 @@ function PlayList({ title, epnum , mylistname, username ,icon}){
     default:
       imageSrc ="Unknown";
   }
+
   return(
    
   <div className="grid-item">
@@ -72,21 +72,60 @@ function PlayList({ title, epnum , mylistname, username ,icon}){
       <p>{mylistname}</p>
       <p>{username}</p>
       <p>{imageSrc}</p>
+      <button >go</button>
     </div>
   );
 }
 
-function PlayListCluster(){
+function PlayListCluster({ PlayList_Data_Url }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(PlayList_Data_Url);
+        if (!response.ok) {
+          throw new Error(`HTTPエラー! ステータスコード: ${response.status}`);
+        }
+        const json = await response.json();
+        setData(json);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [PlayList_Data_Url]);
 
+  if (loading) {
+    return <p>Loading...</p>;
+  }
+
+  if (error) {
+    return <p>Error: {error}</p>;
+  }
   return(
-    <>
     <section className="content-grid">
-    <PlayList title="test" epnum="ep1" mylistname="マイリスト１" username="ユーザー名" icon="prime"/>
-    <PlayList title="test" epnum="ep10" mylistname="マイリスト5" username="ユーザー名" icon="netflix"/>
+      {data && data.allReceivedData ? (
+        data.allReceivedData.map((item, index) => (
+          <PlayList
+            key={index}
+            title={item.title}
+            epnum={item.epnum}
+            mylistname={item.mylistname}
+            username={item.username}
+            icon={item.icon}
+          />
+        ))
+      ) : (
+        <p>データが見つかりません。</p>
+      )}
     </section>
-    </>
-  );
+  )
 }
 
 
@@ -120,8 +159,6 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
 
   }
 
-
-
   return (
     <div className="list-item">
       <p>
@@ -137,11 +174,10 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
 
 
 
-function ClipList(){
+function ClipList(clipApiUrl){
 
     // APIのURL
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;//処理ごとにURLを変更する。
-    console.log("URL",process.env.NEXT_PUBLIC_API_URL);
+    
     // ステートでデータとエラーメッセージを管理
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);
@@ -150,7 +186,7 @@ function ClipList(){
     useEffect(() => {
       const fetchData = async () => {
         try {
-          const response = await fetch(apiUrl);
+          const response = await fetch(clipApiUrl);
           if (!response.ok) {
             throw new Error(`HTTPエラー! ステータスコード: ${response.status}`);
           }
@@ -166,8 +202,9 @@ function ClipList(){
       };
   
       fetchData();
-    }, []); // 初回レンダリング時のみ実行
+    }, [clipApiUrl]); // 初回レンダリング時のみ実行
   return(
+    
     <>
     <section className="content-list">
     {error && <p className="error">エラー: {error}</p>}
@@ -178,9 +215,9 @@ function ClipList(){
             name="切り抜き"
             title={item.title || "タイトルがありません"}
             epnum={item.epnumber || "エラー"}
-            url={item.URL || "/browse"}
+            url={item.URL || "/browse"}//エラーを表示できるようにする
             username="ユーザー名"
-            icon="netflix" // 動的に変更可能
+            icon="netflix" // 動的に変更可能にする
             starttime={item.StartTime}
             endtime={item.EndTime}
           />
@@ -202,22 +239,16 @@ function ClipList(){
 export default function app() {
 
 
+
   return (
 <>
   <Sidebar/>
 
-  <div className="main-content">
+<div className="main-content">
   <HeadSearch/>
-
-
-  <ClipList/>
-  <PlayListCluster/>
-  
-
-
+  <ClipList clipApiUrl={process.env.NEXT_PUBLIC_API_URL} />
+  <PlayListCluster PlayList_Data_Url="/test_data/mylist.json"/>
 </div>
-
-
 </>
 );
 }

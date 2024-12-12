@@ -128,7 +128,6 @@ function Clip({ name, title, epnum, username, icon, rating, url }) {
 
 function ClipList(){
 
-    //  forで繰り返す
     // APIのURL
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;//処理ごとにURLを変更する。
     console.log("URL",process.env.NEXT_PUBLIC_API_URL);
@@ -160,41 +159,29 @@ function ClipList(){
   return(
     <>
     <section className="content-list">
-  {/* 最初の Clip */}
-  <Clip 
-    name="切り抜き" 
-    title={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].title : "タイトルがありません"} 
-    epnum={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].epnumber : "エラー"}
-    url  ={data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].URL : "エラー"}
-    username="ユーザー名" 
-    icon="netflix" 
-  />
-
-  {/* 別の Clip */}
-
-  <Clip 
-    name="切り抜き" 
-    title={data && data.allReceivedData && data.allReceivedData[1] ? data.allReceivedData[1].title : "タイトルがありません"} 
-    epnum={data && data.allReceivedData && data.allReceivedData[1] ? data.allReceivedData[1].epnumber : "エラー"} 
-    url  ={data && data.allReceivedData && data.allReceivedData[1] ? data.allReceivedData[1].URL : "エラー"}
-    username="ユーザー名" 
-    icon="netflix" 
-  />
-  <Clip 
-    name="切り抜き" 
-    title={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].title : "タイトルがありません"} 
-    epnum={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].epnumber : "エラー"}
-    url  ={data && data.allReceivedData && data.allReceivedData[2] ? data.allReceivedData[2].URL : "エラー"} 
-    username="ユーザー名" 
-    icon="netflix" 
-  />
-</section>
+    {error && <p className="error">エラー: {error}</p>}
+      {data && data.allReceivedData ? (
+        data.allReceivedData.map((item, index) => (
+          <Clip
+            key={index}
+            name="切り抜き"
+            title={item.title || "タイトルがありません"}
+            epnum={item.epnumber || "エラー"}
+            url={item.URL || "/browse"}
+            username="ユーザー名"
+            icon="netflix" // 動的に変更可能
+          />
+        ))
+      ) : (
+        <p>データを読み込み中...</p>
+      )}
+    </section>
 
     </>
   );
 
 }
-//{data && data.allReceivedData && data.allReceivedData[0] ? data.allReceivedData[0].url : "エラー"}
+
 
 
 

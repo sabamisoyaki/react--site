@@ -1,16 +1,11 @@
 "use client";
-import React, { useState ,useEffect} from "react";
 import './styles.css';
-import HeadSearch from'./headSearch';
-import Sidebar from './sidebar';
-import ClipList from './clip';
-import PlayList from './playlist';
-
+import HeadSearch from'./base/headSearch'; // ヘッダー
+import Sidebar from './base/sidebar';
+import ClipList from './base/clip';
+import PlayList from './base/playlist';
 
 export default function app() {
-
-
-
   return (
 <>
   <Sidebar/>

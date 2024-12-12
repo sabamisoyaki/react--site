@@ -146,6 +146,29 @@
             "title": "BEASTARS",
             "epnumber": "エピソード3: "
           }
+          
+        ]
+      },
+      {
+        "my_list_name": "playlist_3",
+        "user_name": "sashimi",
+        "icon": "netflix",
+        "data": [
+          {
+            "StartTime": 998.071031,
+            "EndTime": 1131.689591,
+            "URL": "/watch/81423122",
+            "title": "BEASTARS",
+            "epnumber": "エピソード3: "
+          },
+          {
+            "StartTime": 1004.810712,
+            "EndTime": 1215.834645,
+            "URL": "/watch/81423122",
+            "title": "BEASTARS",
+            "epnumber": "エピソード3: "
+          }
+          
         ]
       }
     ]

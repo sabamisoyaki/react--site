@@ -60,7 +60,13 @@ function PlayList({ title, epnum , mylistname, username ,icon,data}){
     default:
       imageSrc ="Unknown";
   }
+  const handleClick = () =>{
+    // cookie関係　starttime endtime拡張機能側への受け渡し
+    let cookiedata = `title=${title}; data= ${data};`;
+    console.log(cookiedata);
+    alert("この値をCookieに書き込みたい！");
 
+  };
   return(
    
   <div className="grid-item">
@@ -72,7 +78,7 @@ function PlayList({ title, epnum , mylistname, username ,icon,data}){
       <p>{mylistname}</p>
       <p>{username}</p>
       <p>{imageSrc}</p>
-      <button >go</button>
+      <button onClick={handleClick}>go</button>
     </div>
   );
 }
@@ -114,11 +120,12 @@ function PlayListCluster({ PlayList_Data_Url }) {
         data.allReceivedData.map((item, index) => (
           <PlayList
             key={index}
-            title={item.title}
-            epnum={item.epnum}
-            mylistname={item.mylistname}
-            username={item.username}
+            title={item.my_list_name}
+            epnum="test サブタイトルにするかもね"
+            mylistname="ここ どうしよ"
+            username={item.user_name}
             icon={item.icon}
+            data={item.data}
           />
         ))
       ) : (

@@ -1,11 +1,30 @@
-export default function Sidebar(){//リンク
+import React from "react";
+import { SidebarData } from "./sidebarData";
+
+function Sidebar() {
     return (
-    <aside className="sidebar">
-        <button>home</button>
-        <button>account</button>
-        <button>my_video</button>
-        <button>mylist</button>
-    </aside>
+        <>
+            <div className="sidebar">
+                <ul className="SidebarList">
+                    {SidebarData.map((value, key) => {
+                        return (
+                            <li 
+                                key={key} 
+                                className="row" 
+                                onClick={() => {
+                                    window.location.pathname = value.link;
+                                }}
+                            >
+                                <div className="icon">{value.icon}</div>
+                                <div className="title">{value.title}</div>
+                            </li>
+                        );
+                    })}
+                </ul>
+            </div>
+
+        </>
     );
 }
-  
+
+export default Sidebar;

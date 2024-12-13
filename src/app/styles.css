@@ -14,7 +14,7 @@ body {
 }
 
 /* サイドバー */
-.sidebar {
+.sidebartest {
     background-color: #e0e0e0;
     padding: 20px 10px; /* 左右のパディングのみ */
     display: flex;
@@ -27,7 +27,7 @@ body {
     left: 0;
 }
 
-.sidebar button {
+.sidebartest button {
     background-color: #ccc;
     border: none;
     padding: 10px;

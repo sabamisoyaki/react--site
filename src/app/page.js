@@ -12,7 +12,7 @@ export default function app() {
 
 <div className="main-content">
   <HeadSearch/>
-  <ClipList clipApiUrl={process.env.NEXT_PUBLIC_API_URL} />
+  <ClipList clipApiUrl="/test_data/clip.json" />
   <PlayList PlayList_Data_Url="/test_data/mylist.json"/>
 </div>
 </>

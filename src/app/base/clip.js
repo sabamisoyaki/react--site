@@ -42,57 +42,68 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
     );
   }
 
-export default function ClipList({clipApiUrl}){
-       // ステートでデータとエラーメッセージを管理
+  export default function ClipList({ clipApiUrl }) {
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(true);
   
-    // データを取得する関数
     useEffect(() => {
       const fetchData = async () => {
+        setLoading(true);
         try {
           const response = await fetch(clipApiUrl);
           if (!response.ok) {
             throw new Error(`HTTPエラー! ステータスコード: ${response.status}`);
           }
-          const json = await response.json();
-
-          //console.log("取得したデータ:", json); // データ構造を確認
-          setData(json); // データをステートに保存
+  
+          const text = await response.text();
+          if (!text) {
+            throw new Error("レスポンスが空です");
+          }
+  
+          try {
+            const json = JSON.parse(text);
+            setData(json);
+          } catch {
+            throw new Error("レスポンスが有効なJSONではありません");
+          }
         } catch (err) {
           console.error("データ取得エラー:", err);
-          setError(err.message); // エラーメッセージをステートに保存
-
+          setError(err.message);
+        } finally {
+          setLoading(false);
         }
       };
-  
       fetchData();
-    }, [clipApiUrl]); // 初回レンダリング時のみ実行
-  return(
-    
-    <>
-    <section className="content-list">
-    {error && <p className="error">エラー: {error}</p>}
-      {data && data.allReceivedData ? (
-        data.allReceivedData.map((item, index) => (
-          <Clip
-            key={index}
-            name="切り抜き"
-            title={item.title || "タイトルがありません"}
-            epnum={item.epnumber || "エラー"}
-            url={item.URL || "/browse"}//エラーを表示できるようにする
-            username="ユーザー名"
-            icon="netflix" // 動的に変更可能にする
-            starttime={item.StartTime}
-            endtime={item.EndTime}
-          />
-        ))
-      ) : (
-        <p>データを読み込み中...</p>
-      )}
-    </section>
-
-    </>
-  );
-
-}
+    }, [clipApiUrl]);
+  
+    if (loading) {
+      return <p>Loading...</p>;
+    }
+  
+    if (error) {
+      return <p>Error: {error}</p>;
+    }
+  
+    return (
+      <section className="content-list">
+        {data?.allReceivedData && data.allReceivedData.length > 0 ? (
+          data.allReceivedData.map((item, index) => (
+            <Clip
+              key={index}
+              name="切り抜き"
+              title={item.title || "タイトルがありません"}
+              epnum={item.epnumber || "エラー"}
+              url={item.URL || "/browse"}
+              username="ユーザー名"
+              icon="netflix"
+              starttime={item.StartTime}
+              endtime={item.EndTime}
+            />
+          ))
+        ) : (
+          <p>データが見つかりません。</p>
+        )}
+      </section>
+    );
+  }

@@ -8,12 +8,10 @@ import PlayList from '@/app/base/playlist';
 export default function app() {
   return (
 <>
-  <Sidebar/>
-
+<Sidebar/>
 <div className="main-content">
-  <HeadSearch/>
+<HeadSearch/>
   <ClipList clipApiUrl= {process.env.NEXT_PUBLIC_API_URL} />
 </div>
 </>
-);
-}
+);}

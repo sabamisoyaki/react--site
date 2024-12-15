@@ -5,7 +5,7 @@ function Sidebar() {
     return (
         <>
             <div className="sidebar">
-                <ul className="SidebarList">
+                <ul className="sidebarList">
                     {SidebarData.map((value, key) => {
                         return (
                             <li 

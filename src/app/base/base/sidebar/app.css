@@ -1,0 +1,68 @@
+html, body {
+    height: 100%;
+}
+
+.app {
+    width: 100%;
+    height: 100%;
+
+}
+
+* {    
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* サイドバー */
+.sidebar {
+    height: 100%; 
+    width: 250px;
+    background-color: #2d445d;
+}
+
+.sidebarList {
+    height: auto;
+    padding: 0;
+    width: 100%;
+}
+
+.sidebarList .row {
+    width: 100%;
+    height: 60px;
+    display: flex;
+    color: white;
+    justify-content: center;
+    align-items: center;
+}
+
+.sidebarList .row:hover {
+    cursor: pointer;
+    background-color: #3d627a;
+}
+.SidebarList #active {
+    background-color: #3b627a;
+}
+
+.row #icon {
+    flex: 30%;
+    display: grid;
+    place-items: center;
+}
+
+.row #title {
+    flex: 70%;
+}
+.sidebarIcon{
+    padding-top: 20px;
+    padding-bottom: 15px;
+    text-align: center;
+}
+.sidebarIcon img{
+    width: 100px;
+}
+.sidebarIcon p{
+    color: white;
+    font-weight: 600;
+    font-size: 13px;
+}

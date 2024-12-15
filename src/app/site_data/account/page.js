@@ -1,10 +1,9 @@
 "use client";
 import '@/app/styles.css';
-import HeadSearch from'@/app/base/headSearch'; ; // ヘッダー
-import Sidebar from '@/app/base/sidebar';
-import ClipList from '@/app/base/clip';
-import PlayList from '@/app/base/playlist';
-
+import HeadSearch from'@/app/base//base/headSearch/headSearch'; ; // ヘッダー
+import Sidebar from '@/app/base/base/sidebar/sidebar';
+import ClipList from '@/app/base/clip/clipCluster';
+import PlayList from '@/app/base/playlist/playlist';
 export default function App() {
   return (
     <>

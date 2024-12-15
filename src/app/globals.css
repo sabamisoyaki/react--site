@@ -77,6 +77,13 @@ html,body {
   justify-content: space-between;
   background-color: #d3d3d3;
   padding: 10px 20px;
+  width: 100%; /* 必須 */
+  box-sizing: border-box; /* 必須 */
+  flex-shrink: 0; /* ヘッダーの高さを固定 */
+}
+.container {
+  display: flex;
+  flex: 1; /* コンテナが残りのスペースを埋める */
 }
 
 .search-bar {
@@ -102,7 +109,7 @@ html,body {
 /* コンテンツグリッド */
 .content-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 10px;
   padding: 20px 0;
 }

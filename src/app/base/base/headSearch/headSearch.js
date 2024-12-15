@@ -1,4 +1,7 @@
 import React, { useState } from "react";
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import SearchIcon from '@mui/icons-material/Search';
+
 export default function HeadSearch(){ //ヘッダー
   
 const [searchText, setSearchText] = useState("");
@@ -25,9 +28,9 @@ return(
           value={searchText} // 状態を入力値にバインド
           onChange={handleInputChange} // 状態を更新するイベント
           />
-          <button onClick={handleClick} className="search-icon" >🔍</button>
+          <button onClick={handleClick} className="search-icon" ><SearchIcon/></button>
         </div>
-        <div className="profile-icon">👤</div>
+        <div className="profile-icon"><AccountCircleIcon/></div>
         </header>
 );
 }

@@ -1,10 +1,12 @@
 import React from "react";
 import { SidebarData } from "./sidebarData";
 
+
 function Sidebar() {
     return (
         <>
             <div className="sidebar">
+
                 <ul className="sidebarList">
                     {SidebarData.map((value, key) => {
                         return (

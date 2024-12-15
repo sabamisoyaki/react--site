@@ -1,10 +1,9 @@
 import React from 'react';
-import Icon from "next/icon test/icon";
 
 function sidebarIcon() {
   return (
     <div className='SidebarIcon'>
-      <img src={Icon}/>
+      <img src="/icontest/Icon.png" alt="Sidebar Icon" width={250} height={250}/>
       <p>testtest@test.com</p>
     </div>
   )

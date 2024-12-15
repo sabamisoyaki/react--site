@@ -1,51 +1,151 @@
-/*
-* {
+html, body {
+  height: 100%;
+}
+
+.app {
+  width: 100%;
+  height: 100%;
+
+}
+
+* {    
+  margin: 0;
+  padding: 0;
   box-sizing: border-box;
 }
 
-body {
-  font-family: sans-serif;
-  margin: 20px;
+/* サイドバー */
+.sidebar {
+  height: 100%; 
+  width: 250px;
+  background-color: #2d445d;
+}
+
+.sidebarList {
+  height: auto;
   padding: 0;
+  width: 100%;
 }
 
-h1 {
-  margin-top: 0;
-  font-size: 22px;
+.sidebarList .row {
+  width: 100%;
+  height: 60px;
+  display: flex;
+  color: white;
+  justify-content: center;
+  align-items: center;
 }
 
-h2 {
-  margin-top: 0;
-  font-size: 20px;
+.sidebarList .row:hover {
+  cursor: pointer;
+  background-color: #3d627a;
+}
+.SidebarList #active {
+  background-color: #3b627a;
 }
 
-h3 {
-  margin-top: 0;
-  font-size: 18px;
+.row #icon {
+  flex: 30%;
+  display: grid;
+  place-items: center;
 }
 
-h4 {
-  margin-top: 0;
-  font-size: 16px;
+.row #title {
+  flex: 70%;
+}
+.sidebarIcon{
+  padding-top: 20px;
+  padding-bottom: 15px;
+  text-align: center;
+}
+.sidebarIcon img{
+  width: 100px;
+}
+.sidebarIcon p{
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
 }
 
-h5 {
-  margin-top: 0;
-  font-size: 14px;
+
+/* ヘッダー */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #d3d3d3;
+  padding: 10px 20px;
 }
 
-h6 {
-  margin-top: 0;
-  font-size: 12px;
+.search-bar {
+  display: flex;
+  align-items: center;
+  background-color: #ddd;
+  padding: 5px;
+  border-radius: 5px;
+  width: 60%;
 }
 
-code {
-  font-size: 1.2em;
+.search-bar input {
+  border: none;
+  outline: none;
+  background: none;
+  width: 100%;
 }
 
-ul {
-  padding-inline-start: 20px;
+.profile-icon {
+  font-size: 24px;
 }
 
-button { margin-right: 10px; }
-*/
+/* コンテンツグリッド */
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 20px 0;
+}
+
+.grid-item {
+  background-color: white;
+  border: 1px solid #ccc;
+  padding: 10px;
+  text-align: center;
+  min-height: 150px;
+}
+
+/* リスト形式のコンテンツ */
+.content-list {
+  margin-top: 20px;
+  background-color: #ffffff;
+  border-top: 1px solid #ccc;
+}
+
+.list-item {
+  border-top: 1px solid #ccc;
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* accountのコンテンツ */
+.user-info, .settings {
+background-color: #fff;
+border: 1px solid #ccc;
+padding: 20px;
+margin-bottom: 20px;
+}
+.user-info table, .settings table {
+width: 100%;
+border-collapse: collapse;
+}
+.user-info td, .settings td {
+padding: 10px;
+border: 1px solid #ccc;
+}
+.change-button {
+       float: right;
+       padding: 5px 10px;
+       font-size: 14px;
+       cursor: pointer;
+}

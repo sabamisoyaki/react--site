@@ -1,5 +1,4 @@
 'use client';
-import "./app.css";
 import Sidebar from "./sidebar";
 
 function app(){

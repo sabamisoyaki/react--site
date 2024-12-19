@@ -86,13 +86,13 @@ function Page() {
             <button
               className="login-button-test"
               onClick={() => {
-                window.location.href = "#";
+                window.location.href = "/site_data/registration";
               }}
             >
               新規会員登録
             </button>
             <a href="#" className="login-link-test">
-              メンバーズについて
+              会員登録について
             </a>
           </div>
         </div>

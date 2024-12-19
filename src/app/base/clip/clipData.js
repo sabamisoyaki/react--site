@@ -14,14 +14,15 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
     //クリック時の処理
     const handleClick = () =>{
       // cookie関係　starttime endtime拡張機能側への受け渡し
-      document.cookie = `title=${name}; starttime=${starttime}; endtime=${endtime} `;
-      console.log(document.cookie);
-      alert("Cookieに値を書き込みました！");
+      //document.cookie = `title=${name}; starttime=${starttime}; endtime=${endtime} `;
+      //console.log(document.cookie);
+      //alert("Cookieに値を書き込みました！");
       
       
       //リンクを開く処理
       if (urlLink) {
-        window.open(urlLink, "_blank");
+        alert("open URL");
+        //window.open(urlLink, "_blank");
       } else {
         alert("Invalid link or unknown service");//eroorリンクへの変更
       }
@@ -29,7 +30,7 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
     }
   
     return (
-      <div className="list-item">
+      <div className="list-item" id="clip-Detail" data-starttime={starttime} data-endtime={endtime}>
         <p>
           {name} — {title} {epnum} — {username}{" "}
           <button onClick={handleClick}>

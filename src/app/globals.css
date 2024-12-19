@@ -167,50 +167,70 @@ border: 1px solid #ccc;
        cursor: pointer;
 }
 /* login画面のコンテンツ */
-main {
+.login-container-test {
+  width: 90%;
+  max-width: 1000px;
+  margin: 50px auto;
   display: flex;
-  justify-content: center; /* 水平方向に中央揃え */
-  align-items: center;     /* 垂直方向に中央揃え */
-  height: 100vh;           /* 画面全体の高さを確保 */
-  background-color: #f5f5f5; /* 背景色 */
-  margin: 0;               /* デフォルトのマージンを削除 */
+  justify-content: space-between;
+  gap: 20px;
 }
 
-.login-container {
-  width: 100%;
-  max-width: 400px;        /* 最大幅を設定 */
+.login-box-test {
+  background: white;
+  border: 1px solid #ddd;
   padding: 20px;
-  background-color: #f8f8f8;
-  border-radius: 10px;
-  box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-  text-align: center;
+  width: 48%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.input-group {
+.input-group-test {
   margin-bottom: 20px;
 }
 
-.input-group input {
+.input-label-test {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: bold;
+}
+
+.login-input-test {
   width: 100%;
   padding: 10px;
-  font-size: 1.2em;
-  border-radius: 5px;
-  border: 1px solid #ccc;
+  border: 1px solid #ddd;
+  border-radius: 4px;
 }
 
-.login-button {
-  display: inline-block;
+.login-checkbox-test {
+  display: flex;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.login-checkbox-test input {
+  margin-right: 5px;
+}
+
+.login-button-test {
   width: 100%;
-  padding: 15px;
-  background-color: #007BFF;
+  padding: 10px;
+  background-color: black;
   color: white;
-  text-align: center;
-  border-radius: 5px;
-  font-size: 1.2em;
+  border: none;
+  border-radius: 4px;
   cursor: pointer;
-  transition: background-color 0.3s;
 }
 
-.login-button:hover {
-  background-color: #0056b3;
+.login-button-test:hover {
+  background-color: #333;
+}
+
+.login-link-test {
+  font-size: 0.9rem;
+  color: #007BFF;
+  text-decoration: none;
+}
+
+.login-link-test:hover {
+  text-decoration: underline;
 }

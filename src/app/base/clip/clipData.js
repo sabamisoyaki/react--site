@@ -33,7 +33,7 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
       <div className="list-item" id="clip-Detail" data-starttime={starttime} data-endtime={endtime}>
         <p>
           {name} — {title} {epnum} — {username}{" "}
-          <button onClick={handleClick}>
+          <button id="clipedbutton" onClick={handleClick}>
             {icon}
           </button>{" "}
           {rating} +

@@ -35,6 +35,20 @@ export default function ClipList({ clipApiUrl }) {
       };
       fetchData();
     }, [clipApiUrl]);
+
+    useEffect(() => {
+      // データが読み込まれ、レンダリングが完了したタイミングで実行
+      if (!loading && data && data.allReceivedData) {
+        console.log("clip要素の生成が完了しました");
+        // カスタムイベントを発火させる例
+        const event = new CustomEvent("clipListElementsRendered", {
+          detail: {
+            itemCount: data.allReceivedData.length,
+          },
+        });
+        window.dispatchEvent(event);
+      }
+    }, [loading, data]);
   
     if (loading) {
       return <p>Loading...</p>;

@@ -13,16 +13,25 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
     }
     //クリック時の処理
     const handleClick = () =>{
-      // cookie関係　starttime endtime拡張機能側への受け渡し
-      //document.cookie = `title=${name}; starttime=${starttime}; endtime=${endtime} `;
-      //console.log(document.cookie);
-      //alert("Cookieに値を書き込みました！");
-      
-      
+    // Cookie関係: name, username, starttime, endtime を設定
+    document.cookie = `name=${encodeURIComponent(name)}; path=/; max-age=3600; secure; samesite=lax`;
+    document.cookie = `title=${encodeURIComponent(title)}; path=/; max-age=3600; secure; samesite=lax`;
+    document.cookie = `username=${encodeURIComponent(username)}; path=/; max-age=3600; secure; samesite=lax`;
+    document.cookie = `starttime=${encodeURIComponent(starttime)}; path=/; max-age=3600; secure`;
+    document.cookie = `endtime=${encodeURIComponent(endtime)}; path=/; max-age=3600; secure`;
+    // Cookie設定確認用（必要なら削除）
+    console.log("Cookie設定: ", document.cookie);    
+    //カスタムイベント発火
+    const event = new CustomEvent("clipSelected", {
+      detail: { name, username, starttime, endtime },
+    });
+    window.dispatchEvent(event);
+
       //リンクを開く処理
       if (urlLink) {
-        alert("open URL");
-        //window.open(urlLink, "_blank");
+        console.log("open URL");
+        //window.open(urlLink, "_blank");// 実際にリンクを開く処理（コメントアウト中）
+
       } else {
         alert("Invalid link or unknown service");//eroorリンクへの変更
       }

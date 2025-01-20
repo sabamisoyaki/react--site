@@ -30,7 +30,8 @@ function Clip({ name, title, epnum, username, icon, rating, url ,starttime, endt
       //リンクを開く処理
       if (urlLink) {
         console.log("open URL");
-        //window.open(urlLink, "_blank");// 実際にリンクを開く処理（コメントアウト中）
+        window.open(urlLink, "_blank");// 実際にリンクを開く処理（コメントアウト中）
+        console.log("open URL now");
 
       } else {
         alert("Invalid link or unknown service");//eroorリンクへの変更

@@ -1,7 +1,6 @@
 import "@/app/globals.css";
-import { redirect } from "next/navigation";
 import { ExtensionLinkButton } from "@/components/ExtensionLinkButton";
-import { getCurrentUser } from "@/server/auth/session";
+import { requireUser } from "@/server/auth/session";
 import {
   collectSubscriptionServices,
   formatDateJa,
@@ -11,16 +10,12 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function AccountPage() {
-  const dbUser = await getCurrentUser({
+  const dbUser = await requireUser({
     name: true,
     email: true,
     createdAt: true,
     playlists: { select: { id: true } },
   });
-
-  if (!dbUser) {
-    redirect("/login");
-  }
 
   const subscriptionServices = collectSubscriptionServices([]);
   const displayName = dbUser.name ?? "未設定";

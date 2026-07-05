@@ -1,5 +1,3 @@
-"use server";
-
 import ClipList from "@/app/base/clip/clipCluster";
 import PlayList from "@/app/base/playlist/playlist";
 import { getCurrentUser } from "@/server/auth/session";

@@ -1,35 +1,11 @@
-import { signIn, signOut } from "@/auth";
-import { getCurrentUser, getSession } from "@/server/auth/session";
+import { signOut } from "@/auth";
+import { requireUser } from "@/server/auth/session";
 import { getUserAuthInfo } from "@/server/services/users";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [session, currentUser] = await Promise.all([
-    getSession(),
-    getCurrentUser(),
-  ]);
-
-  if (!session?.user || !currentUser) {
-    return (
-      <main className="main-content">
-        <section className="user-info">
-          <h3>ダッシュボード</h3>
-          <p>ログインするとアカウント情報を表示できます。</p>
-          <form
-            action={async () => {
-              "use server";
-              await signIn("google");
-            }}
-          >
-            <button className="change-button" type="submit">
-              Googleでログイン
-            </button>
-          </form>
-        </section>
-      </main>
-    );
-  }
+  const currentUser = await requireUser();
 
   const { accounts, sessions } = await getUserAuthInfo(Number(currentUser.id));
 

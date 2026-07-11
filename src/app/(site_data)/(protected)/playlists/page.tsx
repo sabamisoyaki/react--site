@@ -1,4 +1,3 @@
-import "@/app/globals.css";
 import PlayList from "@/app/base/playlist/playlist";
 
 export default function app() {

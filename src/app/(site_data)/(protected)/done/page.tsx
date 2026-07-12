@@ -1,8 +1,8 @@
 export default function Done() {
   return (
-    <main style={{ fontFamily: "sans-serif", padding: 24 }}>
-      <h1>Login complete</h1>
-      <p>You can close this tab.</p>
-    </main>
+    <div className="center-page">
+      <h1 className="page-title">ログインが完了しました</h1>
+      <p>このタブは閉じて構いません。</p>
+    </div>
   );
 }

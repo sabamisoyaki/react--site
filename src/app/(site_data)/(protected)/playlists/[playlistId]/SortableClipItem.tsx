@@ -52,18 +52,9 @@ function SortableClipItem({
   );
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="
-    flex items-center justify-between
-    p-3 rounded-lg border border-neutral-700
-    bg-neutral-900/50 hover:bg-neutral-900/70 hover:border-neutral-500
-    transition-colors
-  "
-    >
+    <div ref={setNodeRef} style={style} className="sortable-clip">
       {/* 左: Clip本体 */}
-      <div className="flex-1">
+      <div className="sortable-clip-body">
         <Clip
           name={clip.clipName || "切り抜き"}
           title={clip.title || "タイトルがありません"}
@@ -79,12 +70,13 @@ function SortableClipItem({
       </div>
       {/* 右: ハンドル & 削除 */}
       {isOwner && (
-        <div className="flex items-center gap-3 ml-3 select-none">
+        <div className="sortable-clip-actions">
           <div
             ref={setActivatorNodeRef}
             {...listeners}
             {...attributes}
-            className="cursor-grab active:cursor-grabbing text-neutral-400 hover:text-white transition text-lg"
+            className="drag-handle"
+            title="ドラッグして並べ替え"
           >
             ☰
           </div>
@@ -92,12 +84,21 @@ function SortableClipItem({
           <button
             type="button"
             onClick={async () => {
+              if (
+                !window.confirm(
+                  `「${clip.clipName || "このクリップ"}」をプレイリストから削除しますか？`,
+                )
+              ) {
+                return;
+              }
               await fetch(`/api/v1/playlists/${playlistId}/clips/${clipId}`, {
                 method: "DELETE",
               });
               location.reload();
             }}
-            className="text-red-400 hover:text-red-300 text-xl leading-none"
+            className="icon-danger-button"
+            title="プレイリストから削除"
+            aria-label="プレイリストから削除"
           >
             ×
           </button>

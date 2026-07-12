@@ -71,33 +71,45 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
 
   if (!mounted) return <div />;
 
+  if (items.length === 0) {
+    return (
+      <div className="status-box">
+        <strong>クリップがありません</strong>
+        <p>クリップ一覧の「＋」ボタンからこのプレイリストに追加できます。</p>
+      </div>
+    );
+  }
+
   return (
     <DndContext
       sensors={isOwner ? sensors : undefined}
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
-      <button
-        type="button"
-        onClick={() => {
-          const clips = items.map((pc) => ({
-            id: pc.clip.id,
-            clipname: pc.clip.clipName,
-            title: pc.clip.title,
-            service: pc.clip.service,
-            Subtitles: pc.clip.epnumber,
-            url: pc.clip.url,
-            startTime: pc.clip.startTime,
-            endTime: pc.clip.endTime,
-          }));
+      <div className="playlist-toolbar">
+        <button
+          type="button"
+          onClick={() => {
+            const clips = items.map((pc) => ({
+              id: pc.clip.id,
+              clipname: pc.clip.clipName,
+              title: pc.clip.title,
+              service: pc.clip.service,
+              Subtitles: pc.clip.epnumber,
+              url: pc.clip.url,
+              startTime: pc.clip.startTime,
+              endTime: pc.clip.endTime,
+            }));
 
-          localStorage.setItem("playQueue", JSON.stringify(clips));
-          window.postMessage({ type: "PLAY_PLAYLIST_START" });
-        }}
-        className="bg-green-600 text-white px-3 py-1 rounded mb-3"
-      >
-        ▶ プレイリスト再生
-      </button>
+            localStorage.setItem("playQueue", JSON.stringify(clips));
+            window.postMessage({ type: "PLAY_PLAYLIST_START" });
+          }}
+          className="btn btn-primary"
+        >
+          ▶ プレイリスト再生
+        </button>
+        <span className="pager-info">{items.length} 件のクリップ</span>
+      </div>
 
       <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
         {items.map((pc) => (

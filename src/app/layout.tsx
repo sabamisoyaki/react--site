@@ -5,7 +5,12 @@ import Sidebar from "@/app/base/_components/sidebar/sidebar";
 import { SessionProvider } from "@/providers/session-provider";
 import { getSession } from "@/server/auth/session";
 
-export const metadata = { title: "My App", description: "…" };
+export const metadata = {
+  // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+  title: "サブスク切り抜き",
+  // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+  description: "サブスク動画の切り抜きシーンを共有・再生できるサービス",
+};
 
 export default async function RootLayout({
   children,
@@ -24,9 +29,7 @@ export default async function RootLayout({
               <Sidebar />
             </aside>
             <div className="main-column">
-              <header className="header">
-                <HeadSearch />
-              </header>
+              <HeadSearch />
               <main className="main-content">{children}</main>
             </div>
           </div>

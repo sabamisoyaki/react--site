@@ -24,7 +24,17 @@ export default async function PlaylistPage({ params }: PlaylistPageProps) {
 
   const userId = currentUser ? String(currentUser.id) : null;
 
-  if (!playlist) return <div>Not Found</div>;
+  if (!playlist) {
+    return (
+      <div className="status-box">
+        <strong>プレイリストが見つかりません</strong>
+        <p>削除されたか、URL が間違っている可能性があります。</p>
+        <a href="/playlists" className="btn btn-secondary">
+          マイリストへ戻る
+        </a>
+      </div>
+    );
+  }
 
   const serialized = {
     id: Number(playlist.id),
@@ -47,8 +57,8 @@ export default async function PlaylistPage({ params }: PlaylistPageProps) {
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-semibold mb-4">{serialized.name}</h1>
+    <div>
+      <h1 className="page-title">{serialized.name}</h1>
       <PlaylistView playlist={serialized} userId={userId} />
     </div>
   );

@@ -5,22 +5,22 @@ import MovieIcon from "@mui/icons-material/Movie";
 
 export const SidebarData = [
   {
-    title: "Home",
+    title: "ホーム",
     icon: <HomeIcon />,
     link: "/",
   },
   {
-    title: "Account",
+    title: "アカウント",
     icon: <AccountCircleIcon />,
     link: "/account",
   },
   {
-    title: "My_Video",
+    title: "マイビデオ",
     icon: <MovieIcon />,
     link: "/my_video",
   },
   {
-    title: "My_List",
+    title: "マイリスト",
     icon: <FolderIcon />,
     link: "/playlists",
   },

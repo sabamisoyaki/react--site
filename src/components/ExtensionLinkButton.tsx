@@ -58,6 +58,7 @@ export function ExtensionLinkButton() {
   return (
     <div>
       <button
+        className="btn btn-secondary btn-sm"
         disabled={status === "loading" || status === "success"}
         onClick={handleClick}
         type="button"
@@ -69,7 +70,7 @@ export function ExtensionLinkButton() {
             : LABEL_LINK}
       </button>
       {message && (
-        <p style={{ color: status === "success" ? "green" : "red" }}>
+        <p className={status === "success" ? "form-success" : "form-error"}>
           {message}
         </p>
       )}

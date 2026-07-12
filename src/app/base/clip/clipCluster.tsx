@@ -8,12 +8,13 @@ import Clip from "@/app/base/clip/clipData";
 
 const DISPLAY_SIZE = 10;
 
-export default function ClipList({ clipApiUrl, userId }) {
+export default function ClipList({ clipApiUrl, userId, emptyMessage }) {
   const [cache, setCache] = useState([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [visibleIndex, setVisibleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unauthorized, setUnauthorized] = useState(false);
 
   // StrictMode 対策：同じ clipApiUrl での二重フェッチを防ぐフラグ
   const didFetchRef = useRef<string | null>(null);
@@ -24,6 +25,7 @@ export default function ClipList({ clipApiUrl, userId }) {
   const fetchChunk = async (cursorValue: string | null = null) => {
     try {
       setLoading(true);
+      setError(null);
 
       const hasQuery = clipApiUrl.includes("?");
 
@@ -32,9 +34,11 @@ export default function ClipList({ clipApiUrl, userId }) {
           ? `${clipApiUrl}${hasQuery ? "&" : "?"}cursor=${cursorValue}`
           : clipApiUrl;
 
-      console.log("[ClipList] FETCH URL:", url);
-
       const res = await fetch(url);
+      if (res.status === 401) {
+        setUnauthorized(true);
+        return;
+      }
       if (!res.ok) throw new Error(`HTTPエラー: ${res.status}`);
 
       const text = await res.text();
@@ -62,6 +66,7 @@ export default function ClipList({ clipApiUrl, userId }) {
     setCursor(null);
     setVisibleIndex(0);
     setError(null);
+    setUnauthorized(false);
     setLoading(true);
 
     // StrictMode 対策：同じ URL で2回呼ばない
@@ -98,6 +103,8 @@ export default function ClipList({ clipApiUrl, userId }) {
   };
 
   const visibleItems = cache.slice(visibleIndex, visibleIndex + DISPLAY_SIZE);
+  const currentPage = Math.floor(visibleIndex / DISPLAY_SIZE) + 1;
+  const hasNext = cursor !== null || visibleIndex + DISPLAY_SIZE < cache.length;
 
   // カスタムイベント
   useEffect(() => {
@@ -109,19 +116,61 @@ export default function ClipList({ clipApiUrl, userId }) {
     }
   }, [loading, visibleItems]);
 
-  if (loading && cache.length === 0) return <p>Loading...</p>;
-  if (error) return <p>Error: {error}</p>;
+  if (loading && cache.length === 0) {
+    return (
+      <div className="status-box" role="status" aria-live="polite">
+        <div className="spinner" aria-hidden="true" />
+        <p>クリップを読み込んでいます…</p>
+      </div>
+    );
+  }
+
+  if (unauthorized) {
+    return (
+      <div className="status-box">
+        <strong>ログインが必要です</strong>
+        <p>この一覧を表示するにはログインしてください。</p>
+        <a href="/login" className="btn btn-primary">
+          ログインする
+        </a>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="status-box is-error">
+        <strong>読み込みに失敗しました</strong>
+        <p>{error}</p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => fetchChunk(cursor)}
+        >
+          再試行
+        </button>
+      </div>
+    );
+  }
+
+  if (visibleItems.length === 0) {
+    return (
+      <div className="status-box">
+        <strong>クリップがありません</strong>
+        <p>{emptyMessage ?? "表示できるクリップがまだありません。"}</p>
+      </div>
+    );
+  }
 
   return (
     <>
       <section className="content-list">
-        {visibleItems.length > 0 ? (
-          visibleItems.map((item, index) => (
+        {visibleItems.map((item, index) => (
+          <div className="list-item" key={item.id ?? index}>
             <Clip
-              key={item.id ?? index}
               name={item.clipName || "切り抜き"}
               title={item.title || "タイトルなし"}
-              epnum={item.epnumber || "エラー"}
+              epnum={item.epnumber || ""}
               url={item.url || "/browse"}
               username={item.user || "ユーザー不明"}
               icon={item.service || "unknown"}
@@ -130,33 +179,29 @@ export default function ClipList({ clipApiUrl, userId }) {
               userId={userId}
               Id={item.id}
             />
-          ))
-        ) : (
-          <p>データがありません。</p>
-        )}
+          </div>
+        ))}
       </section>
 
-      <div className="flex gap-3 mt-4">
+      <nav className="pager" aria-label="ページ切り替え">
         <button
           type="button"
           onClick={prevPage}
           disabled={visibleIndex === 0}
-          className="px-4 py-2 rounded bg-gray-600 text-white disabled:bg-gray-400"
+          className="btn btn-secondary btn-sm"
         >
-          前へ
+          ← 前へ
         </button>
-
+        <span className="pager-info">{currentPage} ページ目</span>
         <button
           type="button"
           onClick={nextPage}
-          disabled={
-            cursor === null && visibleIndex + DISPLAY_SIZE >= cache.length
-          }
-          className="px-4 py-2 rounded bg-gray-600 text-white disabled:bg-gray-400"
+          disabled={!hasNext}
+          className="btn btn-secondary btn-sm"
         >
-          次へ
+          次へ →
         </button>
-      </div>
+      </nav>
     </>
   );
 }

@@ -31,7 +31,8 @@ export default async function AccountPage() {
   const displayName = dbUser.name ?? "未設定";
 
   return (
-    <main className="main-content">
+    <div>
+      <h1 className="page-title">アカウント</h1>
       <section className="user-info">
         <h3>ユーザー情報</h3>
         <table>
@@ -55,22 +56,6 @@ export default async function AccountPage() {
             <tr>
               <td>使用サブスクリプション</td>
               <td>{formatSubscriptionLabel(subscriptionServices)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section className="settings">
-        <h3>設定</h3>
-        <table>
-          <tbody>
-            <tr>
-              <td>連携再生成</td>
-              <td>連携再生成許可 or 終了</td>
-            </tr>
-            <tr>
-              <td>プレイリスト再生成</td>
-              <td>終了後繰り返し</td>
             </tr>
           </tbody>
         </table>
@@ -112,6 +97,6 @@ export default async function AccountPage() {
           </table>
         )}
       </section>
-    </main>
+    </div>
   );
 }

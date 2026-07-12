@@ -4,6 +4,13 @@
 import { useState } from "react";
 import PlaylistCreateModal from "@/app/base/_components/PlaylistModal";
 
+const SERVICE_LABELS = {
+  Netflix: "Netflix",
+  NETFLIX: "Netflix",
+  prime: "Prime Video",
+  PRIME_VIDEO: "Prime Video",
+};
+
 function Clip({
   name,
   title,
@@ -19,6 +26,7 @@ function Clip({
   let urlLink;
   switch (icon) {
     case "Netflix":
+    case "NETFLIX":
       urlLink = `https://www.netflix.com${url}`;
       break;
     case "prime":
@@ -28,6 +36,8 @@ function Clip({
     default:
       urlLink = null;
   }
+
+  const serviceLabel = SERVICE_LABELS[icon] ?? icon;
 
   const [isOpen, setIsOpen] = useState(false);
 
@@ -54,30 +64,46 @@ function Clip({
       const separator = urlLink.includes("?") ? "&" : "?";
       window.open(`${urlLink}${separator}t=${starttime}`, "_blank");
     } else {
-      alert("Invalid link or unknown service");
+      alert(
+        // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+        "このクリップの再生リンクを開けませんでした（未対応のサービスです）",
+      );
     }
   };
 
   return (
-    <div
-      className="list-item"
-      data-starttime={starttime}
-      data-endtime={endtime}
-    >
-      <p>
-        {name} — {title} {epnum} — {username}{" "}
-        <button type="button" className="clipedbutton" onClick={handleClick}>
-          {icon}
-        </button>{" "}
-        {/* YouTubeみたいに clip の横に + */}
+    <div className="clip-row" data-starttime={starttime} data-endtime={endtime}>
+      <div className="clip-row-main">
+        <p className="clip-row-title">{name}</p>
+        <p className="clip-row-sub">
+          {title}
+          {epnum ? ` ${epnum}` : ""} ・ {username}
+        </p>
+      </div>
+      <div className="clip-row-actions">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={handleClick}
+          title={
+            urlLink
+              ? `${serviceLabel} でこの場面を再生`
+              : // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+                "再生リンクがありません"
+          }
+        >
+          ▶ {serviceLabel}
+        </button>
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="ml-2 px-2 py-1 bg-gray-700 text-white rounded hover:bg-gray-600 transition"
+          className="btn btn-secondary btn-sm"
+          title="プレイリストに追加"
+          aria-label="プレイリストに追加"
         >
           ＋
         </button>
-      </p>
+      </div>
       <PlaylistCreateModal
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}

@@ -29,6 +29,7 @@ interface PlayListProps {
 
 interface PlayListClusterProps {
   PlayList_Data_Url: string;
+  emptyMessage?: string;
 }
 
 //
@@ -38,20 +39,16 @@ interface PlayListClusterProps {
 function PlayList({ name, username, data }: PlayListProps) {
   const router = useRouter();
 
-  const handleClick = () => {
-    router.push(`/playlists/${data}`);
-  };
-
   return (
-    <div className="grid-item">
-      <p>
-        <strong>{name}</strong>
-      </p>
-      <p>{username}</p>
-      <button onClick={handleClick} type="button">
-        go
-      </button>
-    </div>
+    <button
+      type="button"
+      className="grid-item"
+      onClick={() => router.push(`/playlists/${data}`)}
+      title={`プレイリスト「${name}」を開く`}
+    >
+      <span className="grid-item-title">{name}</span>
+      <span className="grid-item-sub">{username}</span>
+    </button>
   );
 }
 
@@ -63,12 +60,14 @@ const DISPLAY_SIZE = 10;
 
 export default function PlayListCluster({
   PlayList_Data_Url,
+  emptyMessage,
 }: PlayListClusterProps) {
   const [cache, setCache] = useState<PlaylistItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [visibleIndex, setVisibleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unauthorized, setUnauthorized] = useState(false);
 
   const didFetchRef = useRef<string | null>(null);
 
@@ -79,6 +78,7 @@ export default function PlayListCluster({
   const fetchChunk = async (cursorValue: string | null = null) => {
     try {
       setLoading(true);
+      setError(null);
 
       const hasQuery = PlayList_Data_Url.includes("?");
       const url =
@@ -86,9 +86,11 @@ export default function PlayListCluster({
           ? `${PlayList_Data_Url}${hasQuery ? "&" : "?"}cursor=${cursorValue}`
           : PlayList_Data_Url;
 
-      console.log("[PlayList] FETCH URL:", url);
-
       const res = await fetch(url);
+      if (res.status === 401) {
+        setUnauthorized(true);
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
 
       const json: PlaylistApiResponse = await res.json();
@@ -114,6 +116,7 @@ export default function PlayListCluster({
     setCursor(null);
     setVisibleIndex(0);
     setError(null);
+    setUnauthorized(false);
     setLoading(true);
 
     if (didFetchRef.current === PlayList_Data_Url) return;
@@ -146,53 +149,96 @@ export default function PlayListCluster({
   };
 
   const visibleItems = cache.slice(visibleIndex, visibleIndex + DISPLAY_SIZE);
+  const currentPage = Math.floor(visibleIndex / DISPLAY_SIZE) + 1;
+  const hasNext = cursor !== null || visibleIndex + DISPLAY_SIZE < cache.length;
 
   //
   // --- Rendering -------------------------
   //
 
-  if (loading && cache.length === 0) return <p>Loading...</p>;
-  if (error) return <p>Error: {error}</p>;
+  if (loading && cache.length === 0) {
+    return (
+      <output className="status-box" aria-live="polite">
+        <div className="spinner" aria-hidden="true" />
+        <p>プレイリストを読み込んでいます…</p>
+      </output>
+    );
+  }
+
+  if (unauthorized) {
+    return (
+      <div className="status-box">
+        <strong>ログインが必要です</strong>
+        <p>マイリストを表示するにはログインしてください。</p>
+        <a href="/login" className="btn btn-primary">
+          ログインする
+        </a>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="status-box is-error">
+        <strong>読み込みに失敗しました</strong>
+        <p>{error}</p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => fetchChunk(cursor)}
+        >
+          再試行
+        </button>
+      </div>
+    );
+  }
+
+  if (visibleItems.length === 0) {
+    return (
+      <div className="status-box">
+        <strong>プレイリストがありません</strong>
+        <p>
+          {emptyMessage ??
+            // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+            "クリップの「＋」ボタンからプレイリストを作成できます。"}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <>
       <section className="content-grid">
-        {visibleItems.length > 0 ? (
-          visibleItems.map((item) => (
-            <PlayList
-              key={item.id}
-              name={item.name}
-              username={item.user_name}
-              data={item.data}
-            />
-          ))
-        ) : (
-          <p>データが見つかりません。</p>
-        )}
+        {visibleItems.map((item) => (
+          <PlayList
+            key={item.id}
+            name={item.name}
+            username={item.user_name}
+            data={item.data}
+          />
+        ))}
       </section>
 
       {/* Navigation */}
-      <div className="flex gap-3 mt-4">
+      <nav className="pager" aria-label="ページ切り替え">
         <button
           type="button"
           onClick={prevPage}
           disabled={visibleIndex === 0}
-          className="px-4 py-2 rounded bg-gray-600 text-white disabled:bg-gray-400"
+          className="btn btn-secondary btn-sm"
         >
-          前へ
+          ← 前へ
         </button>
-
+        <span className="pager-info">{currentPage} ページ目</span>
         <button
           type="button"
           onClick={nextPage}
-          disabled={
-            cursor === null && visibleIndex + DISPLAY_SIZE >= cache.length
-          }
-          className="px-4 py-2 rounded bg-gray-600 text-white disabled:bg-gray-400"
+          disabled={!hasNext}
+          className="btn btn-secondary btn-sm"
         >
-          次へ
+          次へ →
         </button>
-      </div>
+      </nav>
     </>
   );
 }

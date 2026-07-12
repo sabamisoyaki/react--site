@@ -12,9 +12,10 @@ export default async function DashboardPage() {
 
   if (!session?.user || !currentUser) {
     return (
-      <main className="main-content">
-        <section className="user-info">
-          <h3>ダッシュボード</h3>
+      <div>
+        <h1 className="page-title">ダッシュボード</h1>
+        <div className="status-box">
+          <strong>ログインが必要です</strong>
           <p>ログインするとアカウント情報を表示できます。</p>
           <form
             action={async () => {
@@ -22,19 +23,20 @@ export default async function DashboardPage() {
               await signIn("google");
             }}
           >
-            <button className="change-button" type="submit">
-              Googleでログイン
+            <button className="btn btn-primary" type="submit">
+              Google でログイン
             </button>
           </form>
-        </section>
-      </main>
+        </div>
+      </div>
     );
   }
 
   const { accounts, sessions } = await getUserAuthInfo(Number(currentUser.id));
 
   return (
-    <main className="main-content">
+    <div>
+      <h1 className="page-title">ダッシュボード</h1>
       <div className="user-info">
         <h3>ユーザー情報</h3>
         <table>
@@ -93,11 +95,11 @@ export default async function DashboardPage() {
             await signOut();
           }}
         >
-          <button className="change-button" type="submit">
+          <button className="btn btn-danger change-button" type="submit">
             ログアウト
           </button>
         </form>
       </div>
-    </main>
+    </div>
   );
 }

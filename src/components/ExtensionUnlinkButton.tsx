@@ -31,6 +31,10 @@ export function ExtensionUnlinkButton({
   const [message, setMessage] = useState("");
 
   async function handleClick() {
+    // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+    if (!window.confirm("この拡張機能の連携を解除しますか？")) {
+      return;
+    }
     setStatus("loading");
     setMessage("");
 
@@ -73,13 +77,14 @@ export function ExtensionUnlinkButton({
   return (
     <span>
       <button
+        className="btn btn-danger btn-sm"
         disabled={status === "loading"}
         onClick={handleClick}
         type="button"
       >
         {status === "loading" ? LABEL_LOADING : LABEL_UNLINK}
       </button>
-      {message && <p style={{ color: "red" }}>{message}</p>}
+      {message && <p className="form-error">{message}</p>}
     </span>
   );
 }

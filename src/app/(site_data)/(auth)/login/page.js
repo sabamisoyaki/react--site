@@ -26,20 +26,24 @@ function GoogleIcon() {
 
 function LoginPage() {
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <h1>ログイン</h1>
-        <p>
+    <div className="mx-auto mt-[8vh] w-full max-w-sm">
+      <div className="flex flex-col gap-4 rounded-2xl border-2 border-ink bg-white p-8 text-center shadow-sticker">
+        <h1 className="text-[22px] font-black">
+          <span className="marker">ログイン</span>
+        </h1>
+        <p className="text-[13px] text-ink-muted">
           Google アカウントでログインできます。
           <br />
           初めての方も、ログインすると自動的に登録されます。
         </p>
         <button
           type="button"
-          className="btn btn-primary login-google-button"
+          className="flex w-full cursor-pointer items-center justify-center gap-2.5 rounded-full bg-accent px-4 py-3 text-[14.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
           onClick={() => signIn("google", { callbackUrl: "/" })}
         >
-          <GoogleIcon />
+          <span className="grid h-7 w-7 place-items-center rounded-full bg-white">
+            <GoogleIcon />
+          </span>
           Google でログイン
         </button>
       </div>

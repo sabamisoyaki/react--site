@@ -58,7 +58,7 @@ export function ExtensionLinkButton() {
   return (
     <div>
       <button
-        className="btn btn-secondary btn-sm"
+        className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[13px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         disabled={status === "loading" || status === "success"}
         onClick={handleClick}
         type="button"
@@ -70,7 +70,13 @@ export function ExtensionLinkButton() {
             : LABEL_LINK}
       </button>
       {message && (
-        <p className={status === "success" ? "form-success" : "form-error"}>
+        <p
+          className={
+            status === "success"
+              ? "mt-2 text-[13px] font-bold text-emerald-700"
+              : "mt-2 text-[13px] font-bold text-accent"
+          }
+        >
           {message}
         </p>
       )}

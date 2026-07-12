@@ -30,10 +30,6 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.1",
-    "@mui/icons-material": "^7.3.7",
-    "@mui/material": "^7.3.7",
     "@prisma/adapter-pg": "^7.4.0",
     "@prisma/client": "^7.4.0",
     "next": "^16.1.6",
@@ -41,7 +37,6 @@
     "pg": "^8.21.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "swr": "^2.3.6",
     "zod": "^4.3.6"
   },
   "devDependencies": {

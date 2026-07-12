@@ -1,4 +1,3 @@
-import "@/app/globals.css";
 import { redirect } from "next/navigation";
 import { ExtensionLinkButton } from "@/components/ExtensionLinkButton";
 import { ExtensionUnlinkButton } from "@/components/ExtensionUnlinkButton";
@@ -12,6 +11,9 @@ import {
 } from "./accountViewModel";
 
 export const dynamic = "force-dynamic";
+
+const CELL = "border-ink/10 border-b px-3 py-2.5 align-middle";
+const LABEL_CELL = `${CELL} w-2/5 text-ink-muted`;
 
 export default async function AccountPage() {
   const dbUser = await getCurrentUser({
@@ -32,46 +34,57 @@ export default async function AccountPage() {
 
   return (
     <div>
-      <h1 className="page-title">アカウント</h1>
-      <section className="user-info">
-        <h3>ユーザー情報</h3>
-        <table>
+      <h1 className="mb-6 text-[22px] font-black">アカウント</h1>
+
+      <section className="mb-6 rounded-2xl border-2 border-ink bg-white p-6 shadow-sticker">
+        <h3 className="mb-3 text-[16px] font-black">ユーザー情報</h3>
+        <table className="w-full border-collapse text-[14px]">
           <tbody>
             <tr>
-              <td>ニックネーム</td>
-              <td>{displayName}</td>
+              <td className={LABEL_CELL}>ニックネーム</td>
+              <td className={CELL}>{displayName}</td>
             </tr>
             <tr>
-              <td>登録メールアドレス</td>
-              <td>{dbUser.email ?? "未設定"}</td>
+              <td className={LABEL_CELL}>登録メールアドレス</td>
+              <td className={CELL}>{dbUser.email ?? "未設定"}</td>
             </tr>
             <tr>
-              <td>登録日</td>
-              <td>{formatDateJa(dbUser.createdAt)}</td>
+              <td className={LABEL_CELL}>登録日</td>
+              <td className={CELL}>{formatDateJa(dbUser.createdAt)}</td>
             </tr>
             <tr>
-              <td>作成プレイリスト数</td>
-              <td>{dbUser.playlists.length}件</td>
+              <td className={LABEL_CELL}>作成プレイリスト数</td>
+              <td className={CELL}>{dbUser.playlists.length}件</td>
             </tr>
             <tr>
-              <td>使用サブスクリプション</td>
-              <td>{formatSubscriptionLabel(subscriptionServices)}</td>
+              <td className={`${LABEL_CELL} border-b-0`}>
+                使用サブスクリプション
+              </td>
+              <td className={`${CELL} border-b-0`}>
+                {formatSubscriptionLabel(subscriptionServices)}
+              </td>
             </tr>
           </tbody>
         </table>
       </section>
 
-      <section className="settings">
-        <h3>Chrome拡張機能</h3>
+      <section className="rounded-2xl border-2 border-ink bg-white p-6 shadow-sticker">
+        <h3 className="mb-3 text-[16px] font-black">Chrome拡張機能</h3>
         <ExtensionLinkButton />
         {linkedExtensions.length > 0 && (
-          <table>
+          <table className="mt-4 w-full border-collapse text-[14px]">
             <thead>
               <tr>
-                <td>連携ID</td>
-                <td>連携日</td>
-                <td>最終同期</td>
-                <td />
+                <td className={`${CELL} font-data text-[11px] text-ink-muted`}>
+                  連携ID
+                </td>
+                <td className={`${CELL} font-data text-[11px] text-ink-muted`}>
+                  連携日
+                </td>
+                <td className={`${CELL} font-data text-[11px] text-ink-muted`}>
+                  最終同期
+                </td>
+                <td className={CELL} />
               </tr>
             </thead>
             <tbody>
@@ -79,10 +92,12 @@ export default async function AccountPage() {
                 const row = formatLinkedExtensionRow(linkedExtension);
                 return (
                   <tr key={linkedExtension.id}>
-                    <td>{row.maskedInstanceId}</td>
-                    <td>{row.linkedAtLabel}</td>
-                    <td>{row.lastSeenAtLabel}</td>
-                    <td>
+                    <td className={`${CELL} font-data text-[12.5px]`}>
+                      {row.maskedInstanceId}
+                    </td>
+                    <td className={CELL}>{row.linkedAtLabel}</td>
+                    <td className={CELL}>{row.lastSeenAtLabel}</td>
+                    <td className={`${CELL} text-right`}>
                       <ExtensionUnlinkButton
                         extensionInstanceId={
                           linkedExtension.extensionInstanceId

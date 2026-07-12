@@ -122,23 +122,23 @@ export default function PlaylistModal({
     // biome-ignore lint/a11y/noStaticElementInteractions: 同上。
     // biome-ignore lint/a11y/useKeyWithClickEvents: 同上。
     <div
-      className="modal-overlay"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="modal-panel"
+        className="flex max-h-[calc(100dvh-3rem)] w-full max-w-md flex-col gap-4 overflow-y-auto rounded-2xl border-2 border-ink bg-white p-6 shadow-sticker"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
       >
-        <h2 className="modal-title" id={titleId}>
-          プレイリストに追加
+        <h2 className="text-[18px] font-black" id={titleId}>
+          <span className="marker">プレイリストに追加</span>
         </h2>
 
         {loadState === "unauthorized" ? (
-          <p>
+          <p className="text-ink-muted">
             プレイリストを使うにはログインが必要です。
             <br />
             ヘッダーの「ログイン」からログインしてください。
@@ -147,12 +147,14 @@ export default function PlaylistModal({
           <>
             {/* 新規作成 */}
             <div>
-              <h3 className="section-title">新しいプレイリストを作成</h3>
-              <div className="modal-field-row">
+              <h3 className="mb-2 text-[14px] font-extrabold">
+                新しいプレイリストを作成
+              </h3>
+              <div className="flex gap-2">
                 <input
                   type="text"
                   placeholder="プレイリスト名"
-                  className="text-input"
+                  className="min-w-0 flex-1 rounded-xl border-2 border-ink px-3.5 py-2 text-[14px] outline-none placeholder:text-ink-muted focus:border-accent"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => {
@@ -161,7 +163,7 @@ export default function PlaylistModal({
                 />
                 <button
                   type="button"
-                  className="btn btn-primary"
+                  className="shrink-0 cursor-pointer rounded-full bg-accent px-4 py-2 text-[13px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
                   onClick={createPlaylist}
                   disabled={!name.trim() || submitting}
                 >
@@ -171,29 +173,33 @@ export default function PlaylistModal({
               </div>
             </div>
 
-            <hr className="modal-divider" />
+            <hr className="border-ink/10" />
 
             {/* 既存プレイリスト */}
             <div>
-              <h3 className="section-title">既存のプレイリストに追加</h3>
+              <h3 className="mb-2 text-[14px] font-extrabold">
+                既存のプレイリストに追加
+              </h3>
               {loadState === "loading" && (
-                <p className="pager-info">読み込み中…</p>
+                <p className="text-[13px] text-ink-muted">読み込み中…</p>
               )}
               {loadState === "error" && (
-                <p className="form-error">
+                <p className="text-[13px] font-bold text-accent">
                   プレイリストを読み込めませんでした。
                 </p>
               )}
               {loadState === "ready" && (
-                <div className="modal-list">
+                <div className="flex max-h-60 flex-col gap-2 overflow-y-auto">
                   {playlists.length === 0 && (
-                    <p className="pager-info">まだプレイリストがありません</p>
+                    <p className="text-[13px] text-ink-muted">
+                      まだプレイリストがありません
+                    </p>
                   )}
                   {playlists.map((p) => (
                     <button
                       type="button"
                       key={p.id}
-                      className="modal-list-item"
+                      className="cursor-pointer rounded-xl border-2 border-ink bg-white px-3.5 py-2 text-left text-[14px] font-bold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
                       onClick={() => addToPlaylist(String(p.id))}
                       disabled={submitting}
                     >
@@ -206,10 +212,16 @@ export default function PlaylistModal({
           </>
         )}
 
-        {errorMessage && <p className="form-error">{errorMessage}</p>}
+        {errorMessage && (
+          <p className="text-[13px] font-bold text-accent">{errorMessage}</p>
+        )}
 
-        <div className="modal-footer">
-          <button type="button" onClick={onClose} className="btn btn-secondary">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="cursor-pointer rounded-full border-2 border-ink bg-white px-5 py-2 text-[13px] font-extrabold hover:bg-chip"
+          >
             閉じる
           </button>
         </div>

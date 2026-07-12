@@ -4,12 +4,23 @@
 import { useState } from "react";
 import PlaylistCreateModal from "@/app/base/_components/PlaylistModal";
 
-const SERVICE_LABELS = {
-  Netflix: "Netflix",
-  NETFLIX: "Netflix",
-  prime: "Prime Video",
-  PRIME_VIDEO: "Prime Video",
+const SERVICE_META = {
+  Netflix: { label: "NETFLIX", badge: "bg-badge-nf" },
+  NETFLIX: { label: "NETFLIX", badge: "bg-badge-nf" },
+  prime: { label: "PRIME VIDEO", badge: "bg-badge-pv" },
+  PRIME_VIDEO: { label: "PRIME VIDEO", badge: "bg-badge-pv" },
 };
+
+function formatTime(seconds) {
+  if (typeof seconds !== "number" || Number.isNaN(seconds)) return null;
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
 
 function Clip({
   name,
@@ -37,7 +48,10 @@ function Clip({
       urlLink = null;
   }
 
-  const serviceLabel = SERVICE_LABELS[icon] ?? icon;
+  const service = SERVICE_META[icon] ?? { label: icon, badge: "bg-chip" };
+  const timeRange = [formatTime(starttime), formatTime(endtime)]
+    .filter(Boolean)
+    .join("–");
 
   const [isOpen, setIsOpen] = useState(false);
 
@@ -72,45 +86,63 @@ function Clip({
   };
 
   return (
-    <div className="clip-row" data-starttime={starttime} data-endtime={endtime}>
-      <div className="clip-row-main">
-        <p className="clip-row-title">{name}</p>
-        <p className="clip-row-sub">
-          {title}
-          {epnum ? ` ${epnum}` : ""} ・ {username}
-        </p>
-      </div>
-      <div className="clip-row-actions">
+    <article
+      className="relative flex h-full flex-col rounded-2xl border-2 border-ink bg-white p-4 pt-5 shadow-sticker"
+      data-starttime={starttime}
+      data-endtime={endtime}
+    >
+      <span
+        className={`absolute -top-3 right-4 rotate-3 rounded border-2 border-ink px-2.5 py-0.5 font-data text-[10px] font-bold tracking-wide ${service.badge}`}
+      >
+        {service.label}
+      </span>
+
+      <h3 className="text-[16px] font-black leading-relaxed">
+        <span className="marker">{name}</span>
+      </h3>
+      <p className="mt-1 truncate text-[12.5px] text-ink-muted">
+        {title}
+        {epnum ? ` ${epnum}` : ""}
+      </p>
+
+      <div className="mt-auto flex items-center gap-2.5 pt-3.5">
+        {timeRange && (
+          <span className="rounded-md bg-chip px-2 py-0.5 font-data text-[11.5px] tabular-nums">
+            {timeRange}
+          </span>
+        )}
+        <span className="truncate text-[12px] text-ink-muted">{username}</span>
         <button
           type="button"
-          className="btn btn-secondary btn-sm"
+          className="ml-auto shrink-0 cursor-pointer rounded-full border-2 border-ink bg-marker px-3.5 py-1 text-[12.5px] font-extrabold hover:bg-marker-strong"
           onClick={handleClick}
           title={
             urlLink
-              ? `${serviceLabel} でこの場面を再生`
+              ? `${service.label} でこの場面を再生`
               : // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
                 "再生リンクがありません"
           }
         >
-          ▶ {serviceLabel}
+          ▶ 観る
         </button>
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="btn btn-secondary btn-sm"
+          className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-full border-2 border-ink bg-white text-[15px] font-extrabold hover:bg-chip"
           title="プレイリストに追加"
           aria-label="プレイリストに追加"
         >
           ＋
         </button>
       </div>
+
       <PlaylistCreateModal
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
         userId={userId}
         clipId={Id}
       />
-    </div>
+    </article>
   );
 }
 

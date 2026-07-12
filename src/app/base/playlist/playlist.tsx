@@ -36,18 +36,43 @@ interface PlayListClusterProps {
 // --- 単一アイテム表示コンポーネント --------
 //
 
+// プレイリスト名から安定して同じカバー配色を選ぶ
+const COVER_GRADIENTS = [
+  "linear-gradient(120deg, #ff3d71, #ff9d5c)",
+  "linear-gradient(120deg, #4353ff, #29c8d8)",
+  "linear-gradient(120deg, #23202b, #5b5470)",
+  "linear-gradient(120deg, #0e9f6e, #84e1bc)",
+];
+
+function coverFor(name: string) {
+  let hash = 0;
+  for (const ch of name) hash = (hash + (ch.codePointAt(0) ?? 0)) % 997;
+  return COVER_GRADIENTS[hash % COVER_GRADIENTS.length];
+}
+
 function PlayList({ name, username, data }: PlayListProps) {
   const router = useRouter();
 
   return (
     <button
       type="button"
-      className="grid-item"
+      className="cursor-pointer overflow-hidden rounded-2xl border-2 border-ink bg-white text-left shadow-sticker transition-transform hover:-translate-y-0.5"
       onClick={() => router.push(`/playlists/${data}`)}
       title={`プレイリスト「${name}」を開く`}
     >
-      <span className="grid-item-title">{name}</span>
-      <span className="grid-item-sub">{username}</span>
+      <div
+        className="flex h-16 items-end px-3.5 pb-1.5 text-2xl font-black text-white/90"
+        style={{ background: coverFor(name) }}
+        aria-hidden="true"
+      >
+        {name.slice(0, 1)}
+      </div>
+      <div className="px-3.5 py-3">
+        <div className="truncate text-[14px] font-black">{name}</div>
+        <div className="mt-0.5 truncate text-[11.5px] text-ink-muted">
+          {username}
+        </div>
+      </div>
     </button>
   );
 }
@@ -158,8 +183,14 @@ export default function PlayListCluster({
 
   if (loading && cache.length === 0) {
     return (
-      <output className="status-box" aria-live="polite">
-        <div className="spinner" aria-hidden="true" />
+      <output
+        className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center text-ink-muted shadow-sticker"
+        aria-live="polite"
+      >
+        <div
+          className="h-7 w-7 animate-spin rounded-full border-4 border-ink/15 border-t-accent"
+          aria-hidden="true"
+        />
         <p>プレイリストを読み込んでいます…</p>
       </output>
     );
@@ -167,10 +198,15 @@ export default function PlayListCluster({
 
   if (unauthorized) {
     return (
-      <div className="status-box">
-        <strong>ログインが必要です</strong>
-        <p>マイリストを表示するにはログインしてください。</p>
-        <a href="/login" className="btn btn-primary">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">ログインが必要です</strong>
+        <p className="text-ink-muted">
+          マイリストを表示するにはログインしてください。
+        </p>
+        <a
+          href="/login"
+          className="rounded-full bg-accent px-5 py-2 text-[13.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
+        >
           ログインする
         </a>
       </div>
@@ -179,12 +215,14 @@ export default function PlayListCluster({
 
   if (error) {
     return (
-      <div className="status-box is-error">
-        <strong>読み込みに失敗しました</strong>
-        <p>{error}</p>
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-accent bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black text-accent">
+          読み込みに失敗しました
+        </strong>
+        <p className="text-ink-muted">{error}</p>
         <button
           type="button"
-          className="btn btn-secondary"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-5 py-2 text-[13.5px] font-extrabold hover:bg-chip"
           onClick={() => fetchChunk(cursor)}
         >
           再試行
@@ -195,9 +233,11 @@ export default function PlayListCluster({
 
   if (visibleItems.length === 0) {
     return (
-      <div className="status-box">
-        <strong>プレイリストがありません</strong>
-        <p>
+      <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">
+          プレイリストがありません
+        </strong>
+        <p className="text-ink-muted">
           {emptyMessage ??
             // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
             "クリップの「＋」ボタンからプレイリストを作成できます。"}
@@ -208,7 +248,7 @@ export default function PlayListCluster({
 
   return (
     <>
-      <section className="content-grid">
+      <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {visibleItems.map((item) => (
           <PlayList
             key={item.id}
@@ -220,21 +260,23 @@ export default function PlayListCluster({
       </section>
 
       {/* Navigation */}
-      <nav className="pager" aria-label="ページ切り替え">
+      <nav className="mt-6 flex items-center gap-3" aria-label="ページ切り替え">
         <button
           type="button"
           onClick={prevPage}
           disabled={visibleIndex === 0}
-          className="btn btn-secondary btn-sm"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[12.5px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         >
           ← 前へ
         </button>
-        <span className="pager-info">{currentPage} ページ目</span>
+        <span className="font-data text-[12px] text-ink-muted tabular-nums">
+          {currentPage} ページ目
+        </span>
         <button
           type="button"
           onClick={nextPage}
           disabled={!hasNext}
-          className="btn btn-secondary btn-sm"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[12.5px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         >
           次へ →
         </button>

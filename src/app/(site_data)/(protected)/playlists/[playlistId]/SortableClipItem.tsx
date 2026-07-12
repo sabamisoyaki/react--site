@@ -52,9 +52,9 @@ function SortableClipItem({
   );
 
   return (
-    <div ref={setNodeRef} style={style} className="sortable-clip">
+    <div ref={setNodeRef} style={style} className="flex items-start gap-3">
       {/* 左: Clip本体 */}
-      <div className="sortable-clip-body">
+      <div className="min-w-0 flex-1">
         <Clip
           name={clip.clipName || "切り抜き"}
           title={clip.title || "タイトルがありません"}
@@ -70,12 +70,12 @@ function SortableClipItem({
       </div>
       {/* 右: ハンドル & 削除 */}
       {isOwner && (
-        <div className="sortable-clip-actions">
+        <div className="flex shrink-0 flex-col items-center gap-2 pt-4">
           <div
             ref={setActivatorNodeRef}
             {...listeners}
             {...attributes}
-            className="drag-handle"
+            className="grid h-8 w-8 cursor-grab place-items-center rounded-lg border-2 border-ink bg-white text-[14px] text-ink-muted hover:text-ink active:cursor-grabbing"
             title="ドラッグして並べ替え"
           >
             ☰
@@ -96,7 +96,7 @@ function SortableClipItem({
               });
               location.reload();
             }}
-            className="icon-danger-button"
+            className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg border-2 border-ink bg-white text-[16px] font-extrabold text-accent hover:bg-badge-nf"
             title="プレイリストから削除"
             aria-label="プレイリストから削除"
           >

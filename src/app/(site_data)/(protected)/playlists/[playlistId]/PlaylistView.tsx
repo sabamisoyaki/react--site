@@ -73,9 +73,11 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
 
   if (items.length === 0) {
     return (
-      <div className="status-box">
-        <strong>クリップがありません</strong>
-        <p>クリップ一覧の「＋」ボタンからこのプレイリストに追加できます。</p>
+      <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">クリップがありません</strong>
+        <p className="text-ink-muted">
+          クリップ一覧の「＋」ボタンからこのプレイリストに追加できます。
+        </p>
       </div>
     );
   }
@@ -86,7 +88,7 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
-      <div className="playlist-toolbar">
+      <div className="mb-5 flex items-center gap-3.5">
         <button
           type="button"
           onClick={() => {
@@ -104,25 +106,29 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
             localStorage.setItem("playQueue", JSON.stringify(clips));
             window.postMessage({ type: "PLAY_PLAYLIST_START" });
           }}
-          className="btn btn-primary"
+          className="cursor-pointer rounded-full bg-accent px-5 py-2 text-[13.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
         >
           ▶ プレイリスト再生
         </button>
-        <span className="pager-info">{items.length} 件のクリップ</span>
+        <span className="font-data text-[12px] text-ink-muted tabular-nums">
+          {items.length} 件のクリップ
+        </span>
       </div>
 
-      <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-        {items.map((pc) => (
-          <SortableClipItem
-            key={pc.id}
-            playlistId={playlist.id}
-            clipId={pc.id}
-            clip={pc.clip}
-            userId={userId}
-            isOwner={isOwner}
-          />
-        ))}
-      </SortableContext>
+      <div className="flex flex-col gap-5">
+        <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+          {items.map((pc) => (
+            <SortableClipItem
+              key={pc.id}
+              playlistId={playlist.id}
+              clipId={pc.id}
+              clip={pc.clip}
+              userId={userId}
+              isOwner={isOwner}
+            />
+          ))}
+        </SortableContext>
+      </div>
     </DndContext>
   );
 }

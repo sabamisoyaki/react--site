@@ -1,9 +1,7 @@
 "use client";
-import AccountCircleIcon from "@mui/icons-material/AccountCircle";
-import SearchIcon from "@mui/icons-material/Search";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { signIn, signOut, useSession } from "next-auth/react";
 import {
   type ChangeEvent,
@@ -13,6 +11,35 @@ import {
   useRef,
   useState,
 } from "react";
+
+const NAV_ITEMS = [
+  { label: "みつける", href: "/" },
+  { label: "マイビデオ", href: "/my_video" },
+  { label: "マイリスト", href: "/playlists" },
+];
+
+function SearchIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  );
+}
+
+function isActive(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function SearchForm() {
   const searchParams = useSearchParams();
@@ -37,11 +64,12 @@ function SearchForm() {
   };
 
   return (
-    <div className="search-bar">
+    <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border-2 border-ink bg-white py-1.5 pr-1.5 pl-4 sm:max-w-xs">
       <input
         type="search"
-        placeholder="クリップ・プレイリストを検索"
-        aria-label="クリップ・プレイリストを検索"
+        placeholder="作品・シーンをさがす"
+        aria-label="作品・シーンをさがす"
+        className="min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-ink-muted"
         value={searchText}
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
@@ -49,8 +77,8 @@ function SearchForm() {
       <button
         type="button"
         onClick={handleSearch}
-        className="search-icon"
         aria-label="検索"
+        className="grid h-7 w-7 shrink-0 cursor-pointer place-items-center rounded-full text-ink-muted hover:bg-chip hover:text-ink"
       >
         <SearchIcon />
       </button>
@@ -83,25 +111,18 @@ function UserMenu() {
   }, [open]);
 
   if (status === "loading") {
-    return (
-      <div className="user-menu">
-        <div className="avatar-button" aria-hidden="true" />
-      </div>
-    );
+    return <div className="h-9 w-9 rounded-full border-2 border-ink/20" />;
   }
 
   if (!session?.user) {
     return (
-      <div className="user-menu">
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={() => signIn("google")}
-        >
-          <AccountCircleIcon fontSize="small" />
-          ログイン
-        </button>
-      </div>
+      <button
+        type="button"
+        className="shrink-0 cursor-pointer rounded-full bg-accent px-4 py-2 text-[13px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
+        onClick={() => signIn("google")}
+      >
+        ログイン
+      </button>
     );
   }
 
@@ -109,34 +130,33 @@ function UserMenu() {
   const initial = displayName.slice(0, 1).toUpperCase();
 
   return (
-    <div className="user-menu" ref={menuRef}>
+    <div className="relative shrink-0" ref={menuRef}>
       <button
         type="button"
-        className="avatar-button"
+        className="grid h-9 w-9 cursor-pointer place-items-center overflow-hidden rounded-full border-2 border-ink bg-marker text-[14px] font-extrabold hover:bg-marker-strong"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`${displayName} のメニュー`}
         onClick={() => setOpen((v) => !v)}
       >
         {session.user.image ? (
-          <Image
-            src={session.user.image}
-            alt=""
-            width={40}
-            height={40}
-            style={{ borderRadius: "50%" }}
-          />
+          <Image src={session.user.image} alt="" width={36} height={36} />
         ) : (
           initial
         )}
       </button>
 
       {open && (
-        <div className="user-menu-dropdown" role="menu">
-          <div className="user-menu-name">{displayName}</div>
+        <div
+          className="absolute top-11 right-0 z-50 min-w-48 rounded-xl border-2 border-ink bg-white py-2 shadow-sticker"
+          role="menu"
+        >
+          <div className="truncate border-ink/10 border-b px-4 pb-2 font-extrabold text-[13.5px]">
+            {displayName}
+          </div>
           <Link
             href="/account"
-            className="user-menu-item"
+            className="block px-4 py-2 text-[13.5px] font-bold hover:bg-chip"
             role="menuitem"
             onClick={() => setOpen(false)}
           >
@@ -144,7 +164,7 @@ function UserMenu() {
           </Link>
           <Link
             href="/dashboard"
-            className="user-menu-item"
+            className="block px-4 py-2 text-[13.5px] font-bold hover:bg-chip"
             role="menuitem"
             onClick={() => setOpen(false)}
           >
@@ -152,7 +172,7 @@ function UserMenu() {
           </Link>
           <button
             type="button"
-            className="user-menu-item is-danger"
+            className="block w-full cursor-pointer px-4 py-2 text-left text-[13.5px] font-bold text-accent hover:bg-chip"
             role="menuitem"
             onClick={() => signOut({ callbackUrl: "/" })}
           >
@@ -164,24 +184,50 @@ function UserMenu() {
   );
 }
 
-export default function HeadSearch() {
+function NavLinks() {
+  const pathname = usePathname();
   return (
-    <header className="header">
-      <h1 className="header-title">サブスク切り抜き</h1>
-      <Suspense
-        fallback={
-          <div className="search-bar">
-            <input
-              type="search"
-              placeholder="クリップ・プレイリストを検索"
-              disabled
-            />
-          </div>
-        }
-      >
-        <SearchForm />
-      </Suspense>
-      <UserMenu />
+    <nav aria-label="メインナビゲーション" className="flex gap-1">
+      {NAV_ITEMS.map((item) => {
+        const active = isActive(pathname, item.href);
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            aria-current={active ? "page" : undefined}
+            className={
+              active
+                ? "rounded-full bg-ink px-3.5 py-1.5 text-[13px] font-extrabold text-white"
+                : "rounded-full px-3.5 py-1.5 text-[13px] font-bold text-ink-muted hover:text-ink"
+            }
+          >
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+export default function TopNav() {
+  return (
+    <header className="sticky top-0 z-40 border-ink border-b-2 bg-white">
+      <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 md:px-8">
+        <Link href="/" className="shrink-0 text-[17px] font-black">
+          サブスク<span className="marker">切り抜き</span>
+        </Link>
+        <NavLinks />
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-3 max-sm:order-last max-sm:basis-full">
+          <Suspense
+            fallback={
+              <div className="h-9 flex-1 rounded-full border-2 border-ink/20 sm:max-w-xs" />
+            }
+          >
+            <SearchForm />
+          </Suspense>
+          <UserMenu />
+        </div>
+      </div>
     </header>
   );
 }

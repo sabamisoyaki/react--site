@@ -9,7 +9,7 @@ export default async function MyVideoPage() {
   if (!userId) redirect("/login");
   return (
     <>
-      <h1 className="page-title">マイビデオ</h1>
+      <h1 className="mb-6 text-[22px] font-black">マイビデオ</h1>
       <ClipList
         clipApiUrl={`/api/v1/clips?userId=${userId}`}
         userId={userId}

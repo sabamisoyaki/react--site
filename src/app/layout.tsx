@@ -1,7 +1,6 @@
 import "./globals.css";
 import type React from "react";
-import HeadSearch from "@/app/base/_components/headSearch/headSearch";
-import Sidebar from "@/app/base/_components/sidebar/sidebar";
+import TopNav from "@/app/base/_components/headSearch/headSearch";
 import { SessionProvider } from "@/providers/session-provider";
 import { getSession } from "@/server/auth/session";
 
@@ -24,15 +23,10 @@ export default async function RootLayout({
       <body>
         {/* ここでセッションを初期値として渡す */}
         <SessionProvider session={session}>
-          <div className="app-shell">
-            <aside className="sidebar">
-              <Sidebar />
-            </aside>
-            <div className="main-column">
-              <HeadSearch />
-              <main className="main-content">{children}</main>
-            </div>
-          </div>
+          <TopNav />
+          <main className="mx-auto w-full max-w-5xl px-4 pt-7 pb-16 md:px-8">
+            {children}
+          </main>
         </SessionProvider>
       </body>
     </html>

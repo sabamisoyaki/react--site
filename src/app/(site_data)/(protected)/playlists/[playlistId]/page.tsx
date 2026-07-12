@@ -5,7 +5,7 @@ export const fetchCache = "force-no-store";
 import { getCurrentUser } from "@/server/auth/session";
 import { isNotFoundError } from "@/server/http/errors";
 import { getPlaylistWithClips } from "@/server/services/playlists";
-import PlaylistView from "./PlaylistView.client";
+import PlaylistView from "./PlaylistView";
 
 type PlaylistPageProps = {
   params: Promise<{ playlistId: string }>;
@@ -26,10 +26,17 @@ export default async function PlaylistPage({ params }: PlaylistPageProps) {
 
   if (!playlist) {
     return (
-      <div className="status-box">
-        <strong>プレイリストが見つかりません</strong>
-        <p>削除されたか、URL が間違っている可能性があります。</p>
-        <a href="/playlists" className="btn btn-secondary">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">
+          プレイリストが見つかりません
+        </strong>
+        <p className="text-ink-muted">
+          削除されたか、URL が間違っている可能性があります。
+        </p>
+        <a
+          href="/playlists"
+          className="rounded-full border-2 border-ink bg-white px-5 py-2 text-[13.5px] font-extrabold hover:bg-chip"
+        >
           マイリストへ戻る
         </a>
       </div>
@@ -58,7 +65,9 @@ export default async function PlaylistPage({ params }: PlaylistPageProps) {
 
   return (
     <div>
-      <h1 className="page-title">{serialized.name}</h1>
+      <h1 className="mb-6 text-[22px] font-black">
+        <span className="marker">{serialized.name}</span>
+      </h1>
       <PlaylistView playlist={serialized} userId={userId} />
     </div>
   );

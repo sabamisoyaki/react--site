@@ -118,19 +118,30 @@ export default function ClipList({ clipApiUrl, userId, emptyMessage }) {
 
   if (loading && cache.length === 0) {
     return (
-      <div className="status-box" role="status" aria-live="polite">
-        <div className="spinner" aria-hidden="true" />
+      <output
+        className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center text-ink-muted shadow-sticker"
+        aria-live="polite"
+      >
+        <div
+          className="h-7 w-7 animate-spin rounded-full border-4 border-ink/15 border-t-accent"
+          aria-hidden="true"
+        />
         <p>クリップを読み込んでいます…</p>
-      </div>
+      </output>
     );
   }
 
   if (unauthorized) {
     return (
-      <div className="status-box">
-        <strong>ログインが必要です</strong>
-        <p>この一覧を表示するにはログインしてください。</p>
-        <a href="/login" className="btn btn-primary">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">ログインが必要です</strong>
+        <p className="text-ink-muted">
+          この一覧を表示するにはログインしてください。
+        </p>
+        <a
+          href="/login"
+          className="rounded-full bg-accent px-5 py-2 text-[13.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
+        >
           ログインする
         </a>
       </div>
@@ -139,12 +150,14 @@ export default function ClipList({ clipApiUrl, userId, emptyMessage }) {
 
   if (error) {
     return (
-      <div className="status-box is-error">
-        <strong>読み込みに失敗しました</strong>
-        <p>{error}</p>
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-accent bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black text-accent">
+          読み込みに失敗しました
+        </strong>
+        <p className="text-ink-muted">{error}</p>
         <button
           type="button"
-          className="btn btn-secondary"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-5 py-2 text-[13.5px] font-extrabold hover:bg-chip"
           onClick={() => fetchChunk(cursor)}
         >
           再試行
@@ -155,49 +168,52 @@ export default function ClipList({ clipApiUrl, userId, emptyMessage }) {
 
   if (visibleItems.length === 0) {
     return (
-      <div className="status-box">
-        <strong>クリップがありません</strong>
-        <p>{emptyMessage ?? "表示できるクリップがまだありません。"}</p>
+      <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">クリップがありません</strong>
+        <p className="text-ink-muted">
+          {emptyMessage ?? "表示できるクリップがまだありません。"}
+        </p>
       </div>
     );
   }
 
   return (
     <>
-      <section className="content-list">
+      <section className="mt-3 grid gap-5 sm:grid-cols-2">
         {visibleItems.map((item, index) => (
-          <div className="list-item" key={item.id ?? index}>
-            <Clip
-              name={item.clipName || "切り抜き"}
-              title={item.title || "タイトルなし"}
-              epnum={item.epnumber || ""}
-              url={item.url || "/browse"}
-              username={item.user || "ユーザー不明"}
-              icon={item.service || "unknown"}
-              starttime={item.startTime}
-              endtime={item.endTime}
-              userId={userId}
-              Id={item.id}
-            />
-          </div>
+          <Clip
+            key={item.id ?? index}
+            name={item.clipName || "切り抜き"}
+            title={item.title || "タイトルなし"}
+            epnum={item.epnumber || ""}
+            url={item.url || "/browse"}
+            username={item.user || "ユーザー不明"}
+            icon={item.service || "unknown"}
+            starttime={item.startTime}
+            endtime={item.endTime}
+            userId={userId}
+            Id={item.id}
+          />
         ))}
       </section>
 
-      <nav className="pager" aria-label="ページ切り替え">
+      <nav className="mt-6 flex items-center gap-3" aria-label="ページ切り替え">
         <button
           type="button"
           onClick={prevPage}
           disabled={visibleIndex === 0}
-          className="btn btn-secondary btn-sm"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[12.5px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         >
           ← 前へ
         </button>
-        <span className="pager-info">{currentPage} ページ目</span>
+        <span className="font-data text-[12px] text-ink-muted tabular-nums">
+          {currentPage} ページ目
+        </span>
         <button
           type="button"
           onClick={nextPage}
           disabled={!hasNext}
-          className="btn btn-secondary btn-sm"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[12.5px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         >
           次へ →
         </button>

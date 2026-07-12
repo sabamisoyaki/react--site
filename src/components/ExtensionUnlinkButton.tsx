@@ -77,14 +77,16 @@ export function ExtensionUnlinkButton({
   return (
     <span>
       <button
-        className="btn btn-danger btn-sm"
+        className="cursor-pointer rounded-full border-2 border-accent bg-white px-3.5 py-1 text-[12.5px] font-extrabold text-accent hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         disabled={status === "loading"}
         onClick={handleClick}
         type="button"
       >
         {status === "loading" ? LABEL_LOADING : LABEL_UNLINK}
       </button>
-      {message && <p className="form-error">{message}</p>}
+      {message && (
+        <p className="mt-2 text-[13px] font-bold text-accent">{message}</p>
+      )}
     </span>
   );
 }

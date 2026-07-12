@@ -5,8 +5,11 @@ import {
 import { toErrorPayload } from "@/server/http/errors";
 import { json } from "@/server/http/json";
 import { parseJsonBody } from "@/server/http/validation";
-import { extensionLinkBodySchema } from "@/server/schemas/extension.schema";
-import { consumeLinkTokenAndLinkExtension } from "@/server/services/extensions";
+import { extensionTokenRefreshBodySchema } from "@/server/schemas/extension.schema";
+import {
+  parseBearerToken,
+  rotateExtensionAuthToken,
+} from "@/server/services/extensions";
 
 export async function POST(req: Request) {
   const headers = buildExtensionCorsHeaders(req, {
@@ -19,9 +22,24 @@ export async function POST(req: Request) {
     );
   }
 
+  const extensionAuthToken = parseBearerToken(req.headers.get("authorization"));
+  if (!extensionAuthToken) {
+    return json(
+      { message: "Authentication required", code: "UNAUTHORIZED" },
+      { status: 401, headers },
+    );
+  }
+
   try {
-    const body = await parseJsonBody(req as never, extensionLinkBodySchema);
-    const result = await consumeLinkTokenAndLinkExtension(body);
+    const body = await parseJsonBody(
+      req as never,
+      extensionTokenRefreshBodySchema,
+    );
+    const result = await rotateExtensionAuthToken(
+      body.extensionInstanceId,
+      extensionAuthToken,
+    );
+
     return json(
       {
         ok: true,

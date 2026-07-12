@@ -6,6 +6,7 @@ import { prisma } from "@/server/db";
 import {
   BadRequestError,
   ConflictError,
+  NotFoundError,
   UnauthorizedError,
 } from "@/server/http/errors";
 import type {
@@ -15,12 +16,14 @@ import type {
 import { buildLegacyClipCreateData } from "@/server/services/legacy-clips";
 
 const LINK_TOKEN_TTL_MS = 10 * 60 * 1000;
+const EXTENSION_AUTH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 type LinkedExtensionRecord = {
   id: number;
   userId: number;
   extensionInstanceId: string;
   extensionAuthHash: string;
+  expiresAt: Date;
   revokedAt: Date | null;
 };
 
@@ -82,6 +85,7 @@ export async function consumeLinkTokenAndLinkExtension(
 
     const extensionAuthToken = generateOpaqueToken();
     const extensionAuthHash = hashOpaqueToken(extensionAuthToken);
+    const expiresAt = new Date(now.getTime() + EXTENSION_AUTH_TOKEN_TTL_MS);
 
     await tx.$executeRaw`
       INSERT INTO linked_extensions (
@@ -90,6 +94,7 @@ export async function consumeLinkTokenAndLinkExtension(
         extension_auth_hash,
         linked_at,
         last_seen_at,
+        expires_at,
         revoked_at
       )
       VALUES (
@@ -98,6 +103,7 @@ export async function consumeLinkTokenAndLinkExtension(
         ${extensionAuthHash},
         ${now},
         ${now},
+        ${expiresAt},
         NULL
       )
       ON CONFLICT (extension_instance_id) WHERE revoked_at IS NULL
@@ -106,11 +112,47 @@ export async function consumeLinkTokenAndLinkExtension(
         extension_auth_hash = EXCLUDED.extension_auth_hash,
         linked_at = EXCLUDED.linked_at,
         last_seen_at = EXCLUDED.last_seen_at,
+        expires_at = EXCLUDED.expires_at,
         revoked_at = NULL
     `;
 
-    return { extensionAuthToken };
+    return { extensionAuthToken, expiresAt };
   });
+}
+
+export async function rotateExtensionAuthToken(
+  extensionInstanceId: string,
+  currentToken: string,
+) {
+  const linkedExtension = await authenticateLinkedExtension(
+    extensionInstanceId,
+    currentToken,
+  );
+
+  const extensionAuthToken = generateOpaqueToken();
+  const extensionAuthHash = hashOpaqueToken(extensionAuthToken);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + EXTENSION_AUTH_TOKEN_TTL_MS);
+
+  // 旧ハッシュ一致を条件にした CAS 更新。並行リフレッシュは片方だけ成功し、
+  // 負けた側(0行更新)は 401 で拡張側の再連携導線に落とす。
+  const rotated = await prisma.$queryRaw<Array<{ id: number }>>`
+    UPDATE linked_extensions
+    SET
+      extension_auth_hash = ${extensionAuthHash},
+      expires_at = ${expiresAt},
+      last_seen_at = ${now}
+    WHERE id = ${linkedExtension.id}
+      AND extension_auth_hash = ${linkedExtension.extensionAuthHash}
+      AND revoked_at IS NULL
+    RETURNING id
+  `;
+
+  if (rotated.length !== 1) {
+    throw new UnauthorizedError("Unauthorized");
+  }
+
+  return { extensionAuthToken, expiresAt };
 }
 
 export async function syncExtensionItems(
@@ -193,6 +235,69 @@ export async function syncExtensionItems(
   return { acceptedItemIds };
 }
 
+export type LinkedExtensionSummary = {
+  id: number;
+  extensionInstanceId: string;
+  linkedAt: Date;
+  lastSeenAt: Date;
+  expiresAt: Date;
+};
+
+export async function listLinkedExtensions(
+  userId: number,
+): Promise<LinkedExtensionSummary[]> {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      id: bigint;
+      extensionInstanceId: string;
+      linkedAt: Date;
+      lastSeenAt: Date;
+      expiresAt: Date;
+    }>
+  >`
+    SELECT
+      id,
+      extension_instance_id AS "extensionInstanceId",
+      linked_at AS "linkedAt",
+      last_seen_at AS "lastSeenAt",
+      expires_at AS "expiresAt"
+    FROM linked_extensions
+    WHERE user_id = ${userId} AND revoked_at IS NULL
+    ORDER BY linked_at DESC
+  `;
+
+  // $queryRaw の BIGINT は BigInt で返り、そのままでは JSON/props に渡せない
+  return rows.map((row) => ({
+    id: Number(row.id),
+    extensionInstanceId: row.extensionInstanceId,
+    linkedAt: row.linkedAt,
+    lastSeenAt: row.lastSeenAt,
+    expiresAt: row.expiresAt,
+  }));
+}
+
+export async function revokeLinkedExtension(
+  userId: number,
+  linkedExtensionId: number,
+) {
+  const revoked = await prisma.$queryRaw<
+    Array<{ extensionInstanceId: string }>
+  >`
+    UPDATE linked_extensions
+    SET revoked_at = ${new Date()}
+    WHERE id = ${linkedExtensionId}
+      AND user_id = ${userId}
+      AND revoked_at IS NULL
+    RETURNING extension_instance_id AS "extensionInstanceId"
+  `;
+
+  if (revoked.length !== 1) {
+    throw new NotFoundError("Linked extension not found");
+  }
+
+  return { extensionInstanceId: revoked[0].extensionInstanceId };
+}
+
 export function parseBearerToken(authorizationHeader: string | null) {
   if (!authorizationHeader) return null;
 
@@ -204,15 +309,20 @@ async function authenticateLinkedExtension(
   extensionInstanceId: string,
   extensionAuthToken: string,
 ) {
+  // revoked 行を WHERE で除外する。unlink 後に再連携すると同じ instance_id の
+  // revoked 行とアクティブ行が併存するため、フィルタ無し LIMIT 1 では revoked 行を
+  // 拾って認証が不安定になる。
   const records = await prisma.$queryRaw<Array<LinkedExtensionRecord>>`
     SELECT
       id,
       user_id AS "userId",
       extension_instance_id AS "extensionInstanceId",
       extension_auth_hash AS "extensionAuthHash",
+      expires_at AS "expiresAt",
       revoked_at AS "revokedAt"
     FROM linked_extensions
     WHERE extension_instance_id = ${extensionInstanceId}::uuid
+      AND revoked_at IS NULL
     LIMIT 1
   `;
 
@@ -224,6 +334,10 @@ async function authenticateLinkedExtension(
   if (
     !tokenHashMatches(extensionAuthToken, linkedExtension.extensionAuthHash)
   ) {
+    throw new UnauthorizedError("Unauthorized");
+  }
+
+  if (linkedExtension.expiresAt.getTime() <= Date.now()) {
     throw new UnauthorizedError("Unauthorized");
   }
 

@@ -46,6 +46,7 @@ export async function getExtensionInstanceIdFromExtension(): Promise<string> {
 function postExtensionAuthToken(
   extensionInstanceId: string,
   extensionAuthToken: string,
+  expiresAt: string,
 ) {
   window.postMessage(
     {
@@ -53,6 +54,7 @@ function postExtensionAuthToken(
       requestId: createRequestId(),
       extensionInstanceId,
       extensionAuthToken,
+      expiresAt,
       token: extensionAuthToken,
     },
     window.location.origin,
@@ -86,7 +88,7 @@ async function linkExtension(extensionInstanceId: string, linkToken: string) {
     throw new Error(body.message || "Failed to link extension");
   }
 
-  return body as { ok: true; extensionAuthToken: string };
+  return body as { ok: true; extensionAuthToken: string; expiresAt: string };
 }
 
 export async function linkExtensionToCurrentUser(
@@ -97,7 +99,11 @@ export async function linkExtensionToCurrentUser(
   const { linkToken } = await requestLinkToken();
   const result = await linkExtension(extensionInstanceId, linkToken);
 
-  postExtensionAuthToken(extensionInstanceId, result.extensionAuthToken);
+  postExtensionAuthToken(
+    extensionInstanceId,
+    result.extensionAuthToken,
+    result.expiresAt,
+  );
 
   return { ...result, extensionInstanceId };
 }

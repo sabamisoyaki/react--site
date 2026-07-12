@@ -25,6 +25,18 @@ export const extensionLinkBodySchema = z
   })
   .strict();
 
+export const extensionTokenRefreshBodySchema = z
+  .object({
+    extensionInstanceId: uuidSchema,
+  })
+  .strict();
+
+export const extensionUnlinkBodySchema = z
+  .object({
+    linkedExtensionId: z.number().int().positive(),
+  })
+  .strict();
+
 export const extensionSyncBodySchema = z
   .object({
     extensionInstanceId: uuidSchema,

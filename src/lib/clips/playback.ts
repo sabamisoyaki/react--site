@@ -12,17 +12,55 @@ export function serviceLabel(code: string): string {
   return SERVICE_LABELS[code] ?? code;
 }
 
+// 絶対URLで保存されたクリップを開いてよいホスト（対応サービスのみ）
+const ALLOWED_HOSTS = new Set([
+  "netflix.com",
+  "www.netflix.com",
+  "amazon.co.jp",
+  "www.amazon.co.jp",
+  "primevideo.com",
+  "www.primevideo.com",
+]);
+
 export function buildServiceUrl(code: string, url: string): string | null {
+  const trimmed = url.trim();
+
+  // DB の url は完全URLの場合と相対パスの場合が混在している。
+  // 完全URLはそのまま使う（ただし対応サービスのホストのみ許可）。
+  if (/^https?:\/\//.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      return ALLOWED_HOSTS.has(parsed.hostname) ? parsed.href : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // 相対パスはサービスごとのベースURLを前置する
+  if (!trimmed.startsWith("/")) return null;
   switch (code) {
     case "Netflix":
     case "NETFLIX":
-      return `https://www.netflix.com${url}`;
+      return `https://www.netflix.com${trimmed}`;
     case "prime":
     case "PRIME_VIDEO":
-      return `https://www.amazon.co.jp/primevideo${url}`;
+      return `https://www.amazon.co.jp/primevideo${trimmed}`;
     default:
       return null;
   }
+}
+
+/** 再生開始位置つきの最終URLを組み立てる（開けない場合は null） */
+export function buildPlaybackUrl(
+  code: string,
+  url: string,
+  starttime: number | undefined,
+): string | null {
+  const base = buildServiceUrl(code, url);
+  if (!base) return null;
+  if (starttime === undefined) return base;
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}t=${starttime}`;
 }
 
 export function formatTime(seconds: unknown): string | null {
@@ -76,10 +114,9 @@ export function openClipPlayback(clip: ClipPlayback): boolean {
   });
   window.dispatchEvent(event);
 
-  const urlLink = buildServiceUrl(service, url);
-  if (!urlLink) return false;
+  const playbackUrl = buildPlaybackUrl(service, url, starttime);
+  if (!playbackUrl) return false;
 
-  const separator = urlLink.includes("?") ? "&" : "?";
-  window.open(`${urlLink}${separator}t=${starttime}`, "_blank");
+  window.open(playbackUrl, "_blank");
   return true;
 }

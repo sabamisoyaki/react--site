@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
+import { notifyPlaylistsUpdated } from "@/lib/playlists/events";
 
 type PlaylistOption = {
   id: number;
@@ -81,6 +82,7 @@ export default function PlaylistModal({
       });
       if (!addRes.ok) throw new Error(`HTTP ${addRes.status}`);
 
+      notifyPlaylistsUpdated();
       onClose();
       router.push(`/playlists/${playlist.id}`);
     } catch {

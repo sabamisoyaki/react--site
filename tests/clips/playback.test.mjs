@@ -44,6 +44,23 @@ test("buildServiceUrl rejects absolute URLs on unknown hosts", () => {
   );
 });
 
+test("buildServiceUrl rejects absolute URLs that don't match the service", () => {
+  // 未知のサービスコードは許可ホストのURLでも開かない
+  assert.equal(
+    buildServiceUrl("unknown", "https://www.netflix.com/watch/1"),
+    null,
+  );
+  // サービスラベルと URL のホストが食い違う場合も弾く
+  assert.equal(
+    buildServiceUrl("NETFLIX", "https://www.primevideo.com/detail/xyz"),
+    null,
+  );
+  assert.equal(
+    buildServiceUrl("DISNEY_PLUS", "https://www.netflix.com/watch/1"),
+    null,
+  );
+});
+
 test("buildServiceUrl rejects unknown services and malformed values", () => {
   assert.equal(buildServiceUrl("unknown", "/watch/1"), null);
   assert.equal(buildServiceUrl("NETFLIX", "watch/1"), null);

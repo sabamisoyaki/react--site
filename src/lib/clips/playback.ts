@@ -13,27 +13,33 @@ export function serviceLabel(code: string): string {
   return SERVICE_LABELS[code] ?? code;
 }
 
-// 絶対URLで保存されたクリップを開いてよいホスト（対応サービスのみ）
-const ALLOWED_HOSTS = new Set([
-  "netflix.com",
-  "www.netflix.com",
-  "amazon.co.jp",
-  "www.amazon.co.jp",
-  "primevideo.com",
-  "www.primevideo.com",
-  "disneyplus.com",
-  "www.disneyplus.com",
-]);
+// 絶対URLで保存されたクリップを開いてよいホスト（サービスコードごとに突合する）。
+// クリップは vodId/service と url を別々に保存するため、ラベルと URL の
+// 食い違い（Netflix 扱いのクリップが Prime のURLを指す等）は未対応として弾く。
+const SERVICE_HOSTS: Record<string, ReadonlySet<string>> = {
+  Netflix: new Set(["netflix.com", "www.netflix.com"]),
+  prime: new Set([
+    "amazon.co.jp",
+    "www.amazon.co.jp",
+    "primevideo.com",
+    "www.primevideo.com",
+  ]),
+  DISNEY_PLUS: new Set(["disneyplus.com", "www.disneyplus.com"]),
+};
+SERVICE_HOSTS.NETFLIX = SERVICE_HOSTS.Netflix;
+SERVICE_HOSTS.PRIME_VIDEO = SERVICE_HOSTS.prime;
 
 export function buildServiceUrl(code: string, url: string): string | null {
   const trimmed = url.trim();
 
   // DB の url は完全URLの場合と相対パスの場合が混在している。
-  // 完全URLはそのまま使う（ただし対応サービスのホストのみ許可）。
+  // 完全URLはそのまま使う（ただし当該サービスのホストのみ許可）。
   if (/^https?:\/\//.test(trimmed)) {
+    const hosts = SERVICE_HOSTS[code];
+    if (!hosts) return null;
     try {
       const parsed = new URL(trimmed);
-      return ALLOWED_HOSTS.has(parsed.hostname) ? parsed.href : null;
+      return hosts.has(parsed.hostname) ? parsed.href : null;
     } catch {
       return null;
     }

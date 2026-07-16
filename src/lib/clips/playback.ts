@@ -6,6 +6,7 @@ export const SERVICE_LABELS: Record<string, string> = {
   NETFLIX: "NETFLIX",
   prime: "PRIME VIDEO",
   PRIME_VIDEO: "PRIME VIDEO",
+  DISNEY_PLUS: "Disney+",
 };
 
 export function serviceLabel(code: string): string {
@@ -20,6 +21,8 @@ const ALLOWED_HOSTS = new Set([
   "www.amazon.co.jp",
   "primevideo.com",
   "www.primevideo.com",
+  "disneyplus.com",
+  "www.disneyplus.com",
 ]);
 
 export function buildServiceUrl(code: string, url: string): string | null {
@@ -45,6 +48,8 @@ export function buildServiceUrl(code: string, url: string): string | null {
     case "prime":
     case "PRIME_VIDEO":
       return `https://www.amazon.co.jp/primevideo${trimmed}`;
+    case "DISNEY_PLUS":
+      return `https://www.disneyplus.com${trimmed}`;
     default:
       return null;
   }

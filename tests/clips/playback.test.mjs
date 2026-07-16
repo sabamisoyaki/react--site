@@ -16,6 +16,17 @@ test("buildServiceUrl prepends the service base to relative paths", () => {
     buildServiceUrl("PRIME_VIDEO", "/detail/xyz"),
     "https://www.amazon.co.jp/primevideo/detail/xyz",
   );
+  assert.equal(
+    buildServiceUrl("DISNEY_PLUS", "/video/abc"),
+    "https://www.disneyplus.com/video/abc",
+  );
+});
+
+test("buildServiceUrl keeps absolute Disney+ URLs working", () => {
+  assert.equal(
+    buildServiceUrl("DISNEY_PLUS", "https://www.disneyplus.com/video/abc"),
+    "https://www.disneyplus.com/video/abc",
+  );
 });
 
 test("buildServiceUrl keeps absolute URLs as-is instead of double-prefixing", () => {

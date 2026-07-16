@@ -15,10 +15,30 @@ type CorsOptions = {
   allowHeaders?: string[];
 };
 
+// 許可エントリは完全一致に加え、"<scheme>://*" 形式のスキーム全体ワイルドカードを許可する。
+// 例: "chrome-extension://*" で任意の拡張オリジンを許可（開発用途）。
+// 任意プレフィックス一致は web オリジンでサフィックス混同
+// （https://app.example.com* が https://app.example.com.evil.com に一致）を招くため採用しない。
+// また "*" 単体もワイルドカードとして扱わない（全オリジン開放事故の防止）。
+// 注意: link-token / session など Cookie セッション認証のルートがこのチェックを使うため、
+// 本番では具体的な拡張IDの登録を推奨。
+function originMatches(pattern: string, origin: string) {
+  if (pattern === origin) return true;
+  if (pattern.endsWith("://*")) {
+    const scheme = pattern.slice(0, -1); // 例: "chrome-extension://"
+    const rest = origin.slice(scheme.length);
+    // scheme 一致 かつ 残りが空でなく "/" を含まない（= host のみ）
+    return origin.startsWith(scheme) && rest.length > 0 && !rest.includes("/");
+  }
+  return false;
+}
+
 export function isAllowedClipWriteOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return true;
-  return clipWriteAllowedOrigins.includes(origin);
+  return clipWriteAllowedOrigins.some((pattern) =>
+    originMatches(pattern, origin),
+  );
 }
 
 export function buildClipWriteCorsHeaders(

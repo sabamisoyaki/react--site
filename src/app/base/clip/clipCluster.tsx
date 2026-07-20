@@ -8,12 +8,13 @@ import Clip from "@/app/base/clip/clipData";
 
 const DISPLAY_SIZE = 10;
 
-export default function ClipList({ clipApiUrl, userId }) {
+export default function ClipList({ clipApiUrl, userId, emptyMessage }) {
   const [cache, setCache] = useState([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [visibleIndex, setVisibleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unauthorized, setUnauthorized] = useState(false);
 
   // StrictMode 対策：同じ clipApiUrl での二重フェッチを防ぐフラグ
   const didFetchRef = useRef<string | null>(null);
@@ -24,6 +25,7 @@ export default function ClipList({ clipApiUrl, userId }) {
   const fetchChunk = async (cursorValue: string | null = null) => {
     try {
       setLoading(true);
+      setError(null);
 
       const hasQuery = clipApiUrl.includes("?");
 
@@ -32,9 +34,11 @@ export default function ClipList({ clipApiUrl, userId }) {
           ? `${clipApiUrl}${hasQuery ? "&" : "?"}cursor=${cursorValue}`
           : clipApiUrl;
 
-      console.log("[ClipList] FETCH URL:", url);
-
       const res = await fetch(url);
+      if (res.status === 401) {
+        setUnauthorized(true);
+        return;
+      }
       if (!res.ok) throw new Error(`HTTPエラー: ${res.status}`);
 
       const text = await res.text();
@@ -62,6 +66,7 @@ export default function ClipList({ clipApiUrl, userId }) {
     setCursor(null);
     setVisibleIndex(0);
     setError(null);
+    setUnauthorized(false);
     setLoading(true);
 
     // StrictMode 対策：同じ URL で2回呼ばない
@@ -98,6 +103,8 @@ export default function ClipList({ clipApiUrl, userId }) {
   };
 
   const visibleItems = cache.slice(visibleIndex, visibleIndex + DISPLAY_SIZE);
+  const currentPage = Math.floor(visibleIndex / DISPLAY_SIZE) + 1;
+  const hasNext = cursor !== null || visibleIndex + DISPLAY_SIZE < cache.length;
 
   // カスタムイベント
   useEffect(() => {
@@ -109,54 +116,108 @@ export default function ClipList({ clipApiUrl, userId }) {
     }
   }, [loading, visibleItems]);
 
-  if (loading && cache.length === 0) return <p>Loading...</p>;
-  if (error) return <p>Error: {error}</p>;
+  if (loading && cache.length === 0) {
+    return (
+      <output
+        className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center text-ink-muted shadow-sticker"
+        aria-live="polite"
+      >
+        <div
+          className="h-7 w-7 animate-spin rounded-full border-4 border-ink/15 border-t-accent"
+          aria-hidden="true"
+        />
+        <p>クリップを読み込んでいます…</p>
+      </output>
+    );
+  }
+
+  if (unauthorized) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">ログインが必要です</strong>
+        <p className="text-ink-muted">
+          この一覧を表示するにはログインしてください。
+        </p>
+        <a
+          href="/login"
+          className="rounded-full bg-accent px-5 py-2 text-[13.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
+        >
+          ログインする
+        </a>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-accent bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black text-accent">
+          読み込みに失敗しました
+        </strong>
+        <p className="text-ink-muted">{error}</p>
+        <button
+          type="button"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-5 py-2 text-[13.5px] font-extrabold hover:bg-chip"
+          onClick={() => fetchChunk(cursor)}
+        >
+          再試行
+        </button>
+      </div>
+    );
+  }
+
+  if (visibleItems.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">クリップがありません</strong>
+        <p className="text-ink-muted">
+          {emptyMessage ?? "表示できるクリップがまだありません。"}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <>
-      <section className="content-list">
-        {visibleItems.length > 0 ? (
-          visibleItems.map((item, index) => (
-            <Clip
-              key={item.id ?? index}
-              name={item.clipName || "切り抜き"}
-              title={item.title || "タイトルなし"}
-              epnum={item.epnumber || "エラー"}
-              url={item.url || "/browse"}
-              username={item.user || "ユーザー不明"}
-              icon={item.service || "unknown"}
-              starttime={item.startTime}
-              endtime={item.endTime}
-              userId={userId}
-              Id={item.id}
-            />
-          ))
-        ) : (
-          <p>データがありません。</p>
-        )}
+      <section className="mt-3 grid gap-5 sm:grid-cols-2">
+        {visibleItems.map((item, index) => (
+          <Clip
+            key={item.id ?? index}
+            name={item.clipName || "切り抜き"}
+            title={item.title || "タイトルなし"}
+            epnum={item.epnumber || ""}
+            url={item.url || "/browse"}
+            username={item.user || "ユーザー不明"}
+            icon={item.service || "unknown"}
+            starttime={item.startTime}
+            endtime={item.endTime}
+            userId={userId}
+            Id={item.id}
+          />
+        ))}
       </section>
 
-      <div className="flex gap-3 mt-4">
+      <nav className="mt-6 flex items-center gap-3" aria-label="ページ切り替え">
         <button
           type="button"
           onClick={prevPage}
           disabled={visibleIndex === 0}
-          className="px-4 py-2 rounded bg-gray-600 text-white disabled:bg-gray-400"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[12.5px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         >
-          前へ
+          ← 前へ
         </button>
-
+        <span className="font-data text-[12px] text-ink-muted tabular-nums">
+          {currentPage} ページ目
+        </span>
         <button
           type="button"
           onClick={nextPage}
-          disabled={
-            cursor === null && visibleIndex + DISPLAY_SIZE >= cache.length
-          }
-          className="px-4 py-2 rounded bg-gray-600 text-white disabled:bg-gray-400"
+          disabled={!hasNext}
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[12.5px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         >
-          次へ
+          次へ →
         </button>
-      </div>
+      </nav>
     </>
   );
 }

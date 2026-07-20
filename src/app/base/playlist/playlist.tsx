@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { coverFor } from "@/lib/playlists/cover";
 
 //
 // --- 型定義 ------------------------------
@@ -29,6 +30,7 @@ interface PlayListProps {
 
 interface PlayListClusterProps {
   PlayList_Data_Url: string;
+  emptyMessage?: string;
 }
 
 //
@@ -38,20 +40,27 @@ interface PlayListClusterProps {
 function PlayList({ name, username, data }: PlayListProps) {
   const router = useRouter();
 
-  const handleClick = () => {
-    router.push(`/playlists/${data}`);
-  };
-
   return (
-    <div className="grid-item">
-      <p>
-        <strong>{name}</strong>
-      </p>
-      <p>{username}</p>
-      <button onClick={handleClick} type="button">
-        go
-      </button>
-    </div>
+    <button
+      type="button"
+      className="cursor-pointer overflow-hidden rounded-2xl border-2 border-ink bg-white text-left shadow-sticker transition-transform hover:-translate-y-0.5"
+      onClick={() => router.push(`/playlists/${data}`)}
+      title={`プレイリスト「${name}」を開く`}
+    >
+      <div
+        className="flex h-16 items-end px-3.5 pb-1.5 text-2xl font-black text-white/90"
+        style={{ background: coverFor(name) }}
+        aria-hidden="true"
+      >
+        {name.slice(0, 1)}
+      </div>
+      <div className="px-3.5 py-3">
+        <div className="truncate text-[14px] font-black">{name}</div>
+        <div className="mt-0.5 truncate text-[11.5px] text-ink-muted">
+          {username}
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -63,12 +72,14 @@ const DISPLAY_SIZE = 10;
 
 export default function PlayListCluster({
   PlayList_Data_Url,
+  emptyMessage,
 }: PlayListClusterProps) {
   const [cache, setCache] = useState<PlaylistItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [visibleIndex, setVisibleIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [unauthorized, setUnauthorized] = useState(false);
 
   const didFetchRef = useRef<string | null>(null);
 
@@ -79,6 +90,7 @@ export default function PlayListCluster({
   const fetchChunk = async (cursorValue: string | null = null) => {
     try {
       setLoading(true);
+      setError(null);
 
       const hasQuery = PlayList_Data_Url.includes("?");
       const url =
@@ -86,9 +98,11 @@ export default function PlayListCluster({
           ? `${PlayList_Data_Url}${hasQuery ? "&" : "?"}cursor=${cursorValue}`
           : PlayList_Data_Url;
 
-      console.log("[PlayList] FETCH URL:", url);
-
       const res = await fetch(url);
+      if (res.status === 401) {
+        setUnauthorized(true);
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
 
       const json: PlaylistApiResponse = await res.json();
@@ -114,6 +128,7 @@ export default function PlayListCluster({
     setCursor(null);
     setVisibleIndex(0);
     setError(null);
+    setUnauthorized(false);
     setLoading(true);
 
     if (didFetchRef.current === PlayList_Data_Url) return;
@@ -146,53 +161,113 @@ export default function PlayListCluster({
   };
 
   const visibleItems = cache.slice(visibleIndex, visibleIndex + DISPLAY_SIZE);
+  const currentPage = Math.floor(visibleIndex / DISPLAY_SIZE) + 1;
+  const hasNext = cursor !== null || visibleIndex + DISPLAY_SIZE < cache.length;
 
   //
   // --- Rendering -------------------------
   //
 
-  if (loading && cache.length === 0) return <p>Loading...</p>;
-  if (error) return <p>Error: {error}</p>;
+  if (loading && cache.length === 0) {
+    return (
+      <output
+        className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center text-ink-muted shadow-sticker"
+        aria-live="polite"
+      >
+        <div
+          className="h-7 w-7 animate-spin rounded-full border-4 border-ink/15 border-t-accent"
+          aria-hidden="true"
+        />
+        <p>プレイリストを読み込んでいます…</p>
+      </output>
+    );
+  }
+
+  if (unauthorized) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">ログインが必要です</strong>
+        <p className="text-ink-muted">
+          マイリストを表示するにはログインしてください。
+        </p>
+        <a
+          href="/login"
+          className="rounded-full bg-accent px-5 py-2 text-[13.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
+        >
+          ログインする
+        </a>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-accent bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black text-accent">
+          読み込みに失敗しました
+        </strong>
+        <p className="text-ink-muted">{error}</p>
+        <button
+          type="button"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-5 py-2 text-[13.5px] font-extrabold hover:bg-chip"
+          onClick={() => fetchChunk(cursor)}
+        >
+          再試行
+        </button>
+      </div>
+    );
+  }
+
+  if (visibleItems.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">
+          プレイリストがありません
+        </strong>
+        <p className="text-ink-muted">
+          {emptyMessage ??
+            // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+            "クリップの「＋」ボタンからプレイリストを作成できます。"}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <>
-      <section className="content-grid">
-        {visibleItems.length > 0 ? (
-          visibleItems.map((item) => (
-            <PlayList
-              key={item.id}
-              name={item.name}
-              username={item.user_name}
-              data={item.data}
-            />
-          ))
-        ) : (
-          <p>データが見つかりません。</p>
-        )}
+      <section className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        {visibleItems.map((item) => (
+          <PlayList
+            key={item.id}
+            name={item.name}
+            username={item.user_name}
+            data={item.data}
+          />
+        ))}
       </section>
 
       {/* Navigation */}
-      <div className="flex gap-3 mt-4">
+      <nav className="mt-6 flex items-center gap-3" aria-label="ページ切り替え">
         <button
           type="button"
           onClick={prevPage}
           disabled={visibleIndex === 0}
-          className="px-4 py-2 rounded bg-gray-600 text-white disabled:bg-gray-400"
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[12.5px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         >
-          前へ
+          ← 前へ
         </button>
-
+        <span className="font-data text-[12px] text-ink-muted tabular-nums">
+          {currentPage} ページ目
+        </span>
         <button
           type="button"
           onClick={nextPage}
-          disabled={
-            cursor === null && visibleIndex + DISPLAY_SIZE >= cache.length
-          }
-          className="px-4 py-2 rounded bg-gray-600 text-white disabled:bg-gray-400"
+          disabled={!hasNext}
+          className="cursor-pointer rounded-full border-2 border-ink bg-white px-4 py-1.5 text-[12.5px] font-extrabold hover:bg-chip disabled:cursor-not-allowed disabled:opacity-40"
         >
-          次へ
+          次へ →
         </button>
-      </div>
+      </nav>
     </>
   );
 }

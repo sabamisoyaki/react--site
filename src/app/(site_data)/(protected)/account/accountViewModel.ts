@@ -27,3 +27,25 @@ export function collectSubscriptionServices(clips: ClipLike[]): string[] {
 export function formatSubscriptionLabel(services: string[]): string {
   return services.length > 0 ? services.join(" / ") : "未連携（仮表示）";
 }
+
+interface LinkedExtensionRowLike {
+  extensionInstanceId: string;
+  linkedAt: Date;
+  lastSeenAt: Date;
+}
+
+export function maskInstanceId(instanceId: string): string {
+  return instanceId.length > 8 ? `${instanceId.slice(0, 8)}…` : instanceId;
+}
+
+export function formatLinkedExtensionRow(row: LinkedExtensionRowLike): {
+  maskedInstanceId: string;
+  linkedAtLabel: string;
+  lastSeenAtLabel: string;
+} {
+  return {
+    maskedInstanceId: maskInstanceId(row.extensionInstanceId),
+    linkedAtLabel: formatDateJa(row.linkedAt),
+    lastSeenAtLabel: formatDateJa(row.lastSeenAt),
+  };
+}

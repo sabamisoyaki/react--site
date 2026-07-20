@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { buildPlaybackUrl } from "@/lib/clips/playback";
 import { isNotFoundError } from "@/server/http/errors";
 import { getClipWithVod } from "@/server/services/clips";
 
@@ -17,10 +18,13 @@ export default async function ClipPage({ params }) {
   if (!clip) return <h1>Not Found</h1>;
 
   const startSeconds = Math.floor(clip.startMs / 1000);
-  const url =
-    clip.vod.code === "Netflix"
-      ? `https://www.netflix.com${clip.url}?t=${startSeconds}`
-      : clip.url;
+  const url = buildPlaybackUrl(clip.vod.code, clip.url, startSeconds);
+
+  if (!url) {
+    return (
+      <h1>このクリップの再生リンクを開けません（未対応のサービスです）</h1>
+    );
+  }
 
   redirect(url);
 }

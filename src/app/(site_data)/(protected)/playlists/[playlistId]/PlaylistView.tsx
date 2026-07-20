@@ -71,46 +71,64 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
 
   if (!mounted) return <div />;
 
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-ink bg-white p-10 text-center shadow-sticker">
+        <strong className="text-[17px] font-black">クリップがありません</strong>
+        <p className="text-ink-muted">
+          クリップ一覧の「＋」ボタンからこのプレイリストに追加できます。
+        </p>
+      </div>
+    );
+  }
+
   return (
     <DndContext
       sensors={isOwner ? sensors : undefined}
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
-      <button
-        type="button"
-        onClick={() => {
-          const clips = items.map((pc) => ({
-            id: pc.clip.id,
-            clipname: pc.clip.clipName,
-            title: pc.clip.title,
-            service: pc.clip.service,
-            Subtitles: pc.clip.epnumber,
-            url: pc.clip.url,
-            startTime: pc.clip.startTime,
-            endTime: pc.clip.endTime,
-          }));
+      <div className="mb-5 flex items-center gap-3.5">
+        <button
+          type="button"
+          onClick={() => {
+            const clips = items.map((pc) => ({
+              id: pc.clip.id,
+              clipname: pc.clip.clipName,
+              title: pc.clip.title,
+              service: pc.clip.service,
+              Subtitles: pc.clip.epnumber,
+              url: pc.clip.url,
+              startTime: pc.clip.startTime,
+              endTime: pc.clip.endTime,
+            }));
 
-          localStorage.setItem("playQueue", JSON.stringify(clips));
-          window.postMessage({ type: "PLAY_PLAYLIST_START" });
-        }}
-        className="bg-green-600 text-white px-3 py-1 rounded mb-3"
-      >
-        ▶ プレイリスト再生
-      </button>
+            localStorage.setItem("playQueue", JSON.stringify(clips));
+            window.postMessage({ type: "PLAY_PLAYLIST_START" });
+          }}
+          className="cursor-pointer rounded-full bg-accent px-5 py-2 text-[13.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
+        >
+          ▶ プレイリスト再生
+        </button>
+        <span className="font-data text-[12px] text-ink-muted tabular-nums">
+          {items.length} 件のクリップ
+        </span>
+      </div>
 
-      <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-        {items.map((pc) => (
-          <SortableClipItem
-            key={pc.id}
-            playlistId={playlist.id}
-            clipId={pc.id}
-            clip={pc.clip}
-            userId={userId}
-            isOwner={isOwner}
-          />
-        ))}
-      </SortableContext>
+      <div className="flex flex-col gap-5">
+        <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+          {items.map((pc) => (
+            <SortableClipItem
+              key={pc.id}
+              playlistId={playlist.id}
+              clipId={pc.id}
+              clip={pc.clip}
+              userId={userId}
+              isOwner={isOwner}
+            />
+          ))}
+        </SortableContext>
+      </div>
     </DndContext>
   );
 }

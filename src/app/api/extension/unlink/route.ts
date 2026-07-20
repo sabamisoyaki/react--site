@@ -1,3 +1,4 @@
+import { auth } from "@/auth";
 import {
   buildExtensionCorsHeaders,
   isAllowedClipWriteOrigin,
@@ -5,8 +6,8 @@ import {
 import { toErrorPayload } from "@/server/http/errors";
 import { json } from "@/server/http/json";
 import { parseJsonBody } from "@/server/http/validation";
-import { extensionLinkBodySchema } from "@/server/schemas/extension.schema";
-import { consumeLinkTokenAndLinkExtension } from "@/server/services/extensions";
+import { extensionUnlinkBodySchema } from "@/server/schemas/extension.schema";
+import { revokeLinkedExtension } from "@/server/services/extensions";
 
 export async function POST(req: Request) {
   const headers = buildExtensionCorsHeaders(req, {
@@ -19,15 +20,28 @@ export async function POST(req: Request) {
     );
   }
 
-  try {
-    const body = await parseJsonBody(req as never, extensionLinkBodySchema);
-    const result = await consumeLinkTokenAndLinkExtension(body);
+  const session = await auth();
+  if (!session?.user?.id) {
     return json(
-      {
-        ok: true,
-        extensionAuthToken: result.extensionAuthToken,
-        expiresAt: result.expiresAt,
-      },
+      { message: "Authentication required", code: "UNAUTHORIZED" },
+      { status: 401, headers },
+    );
+  }
+
+  const userId = Number.parseInt(session.user.id, 10);
+  if (!Number.isSafeInteger(userId)) {
+    return json(
+      { message: "Invalid session user id", code: "UNAUTHORIZED" },
+      { status: 401, headers },
+    );
+  }
+
+  try {
+    const body = await parseJsonBody(req as never, extensionUnlinkBodySchema);
+    const result = await revokeLinkedExtension(userId, body.linkedExtensionId);
+
+    return json(
+      { ok: true, extensionInstanceId: result.extensionInstanceId },
       { headers },
     );
   } catch (error) {

@@ -1,8 +1,10 @@
 export default function Done() {
   return (
-    <main style={{ fontFamily: "sans-serif", padding: 24 }}>
-      <h1>Login complete</h1>
-      <p>You can close this tab.</p>
-    </main>
+    <div className="flex flex-col items-center gap-3 pt-[10vh] text-center">
+      <h1 className="text-[22px] font-black">
+        <span className="marker">ログインが完了しました</span>
+      </h1>
+      <p className="text-ink-muted">このタブは閉じて構いません。</p>
+    </div>
   );
 }

@@ -3,6 +3,20 @@
 
 import { useState } from "react";
 import PlaylistCreateModal from "@/app/base/_components/PlaylistModal";
+import {
+  buildServiceUrl,
+  formatTimeRange,
+  openClipPlayback,
+  serviceLabel,
+} from "@/lib/clips/playback";
+import { recordRecentClip } from "@/lib/clips/recentClips";
+
+const SERVICE_BADGES = {
+  Netflix: "bg-badge-nf",
+  NETFLIX: "bg-badge-nf",
+  prime: "bg-badge-pv",
+  PRIME_VIDEO: "bg-badge-pv",
+};
 
 function Clip({
   name,
@@ -16,75 +30,90 @@ function Clip({
   userId,
   Id,
 }) {
-  let urlLink;
-  switch (icon) {
-    case "Netflix":
-      urlLink = `https://www.netflix.com${url}`;
-      break;
-    case "prime":
-    case "PRIME_VIDEO":
-      urlLink = `https://www.amazon.co.jp/primevideo${url}`;
-      break;
-    default:
-      urlLink = null;
-  }
+  const playable = buildServiceUrl(icon, url) !== null;
+  const badge = SERVICE_BADGES[icon] ?? "bg-chip";
+  const timeRange = formatTimeRange(starttime, endtime);
 
   const [isOpen, setIsOpen] = useState(false);
 
   const handleClick = () => {
-    // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
-    document.cookie = `name=${encodeURIComponent(name)}; path=/; max-age=3600; secure; samesite=lax`;
-    // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
-    document.cookie = `title=${encodeURIComponent(title)}; path=/; max-age=3600; secure; samesite=lax`;
-    // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
-    document.cookie = `username=${encodeURIComponent(username)}; path=/; max-age=3600; secure; samesite=lax`;
-    // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
-    document.cookie = `starttime=${encodeURIComponent(starttime)}; path=/; max-age=3600; secure`;
-    // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
-    document.cookie = `endtime=${encodeURIComponent(endtime)}; path=/; max-age=3600; secure`;
-    // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
-    document.cookie = `url=${encodeURIComponent(url)}; path=/; max-age=3600; secure`;
-
-    const event = new CustomEvent("clipSelected", {
-      detail: { name, username, starttime, endtime },
-    });
-    window.dispatchEvent(event);
-
-    if (urlLink) {
-      const separator = urlLink.includes("?") ? "&" : "?";
-      window.open(`${urlLink}${separator}t=${starttime}`, "_blank");
+    const clip = {
+      name,
+      title,
+      username,
+      service: icon,
+      url,
+      starttime,
+      endtime,
+    };
+    if (openClipPlayback(clip)) {
+      recordRecentClip({ ...clip, id: Number(Id) });
     } else {
-      alert("Invalid link or unknown service");
+      alert(
+        // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+        "このクリップの再生リンクを開けませんでした（未対応のサービスです）",
+      );
     }
   };
 
   return (
-    <div
-      className="list-item"
+    <article
+      className="relative flex h-full flex-col rounded-2xl border-2 border-ink bg-white p-4 pt-5 shadow-sticker"
       data-starttime={starttime}
       data-endtime={endtime}
     >
-      <p>
-        {name} — {title} {epnum} — {username}{" "}
-        <button type="button" className="clipedbutton" onClick={handleClick}>
-          {icon}
-        </button>{" "}
-        {/* YouTubeみたいに clip の横に + */}
+      <span
+        className={`absolute -top-3 right-4 rotate-3 rounded border-2 border-ink px-2.5 py-0.5 font-data text-[10px] font-bold tracking-wide ${badge}`}
+      >
+        {serviceLabel(icon)}
+      </span>
+
+      <h3 className="text-[16px] font-black leading-relaxed">
+        <span className="marker">{name}</span>
+      </h3>
+      <p className="mt-1 truncate text-[12.5px] text-ink-muted">
+        {title}
+        {epnum ? ` ${epnum}` : ""}
+      </p>
+
+      <div className="mt-auto flex items-center gap-2.5 pt-3.5">
+        {timeRange && (
+          <span className="rounded-md bg-chip px-2 py-0.5 font-data text-[11.5px] tabular-nums">
+            {timeRange}
+          </span>
+        )}
+        <span className="truncate text-[12px] text-ink-muted">{username}</span>
+        <button
+          type="button"
+          className="ml-auto shrink-0 cursor-pointer rounded-full border-2 border-ink bg-marker px-3.5 py-1 text-[12.5px] font-extrabold hover:bg-marker-strong"
+          onClick={handleClick}
+          title={
+            playable
+              ? `${serviceLabel(icon)} でこの場面を再生`
+              : // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+                "再生リンクがありません"
+          }
+        >
+          ▶ 観る
+        </button>
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="ml-2 px-2 py-1 bg-gray-700 text-white rounded hover:bg-gray-600 transition"
+          className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-full border-2 border-ink bg-white text-[15px] font-extrabold hover:bg-chip"
+          title="プレイリストに追加"
+          aria-label="プレイリストに追加"
         >
           ＋
         </button>
-      </p>
+      </div>
+
       <PlaylistCreateModal
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
         userId={userId}
         clipId={Id}
       />
-    </div>
+    </article>
   );
 }
 

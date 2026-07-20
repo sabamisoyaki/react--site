@@ -33,12 +33,14 @@ export function buildServiceUrl(code: string, url: string): string | null {
   const trimmed = url.trim();
 
   // DB の url は完全URLの場合と相対パスの場合が混在している。
-  // 完全URLはそのまま使う（ただし当該サービスのホストのみ許可）。
+  // 完全URLはそのまま使う（当該サービスのホスト かつ https のみ許可）。
+  // http:// の downgrade URL を保存データ由来で開く理由はないため弾く。
   if (/^https?:\/\//.test(trimmed)) {
     const hosts = SERVICE_HOSTS[code];
     if (!hosts) return null;
     try {
       const parsed = new URL(trimmed);
+      if (parsed.protocol !== "https:") return null;
       return hosts.has(parsed.hostname) ? parsed.href : null;
     } catch {
       return null;

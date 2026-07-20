@@ -44,6 +44,18 @@ test("buildServiceUrl rejects absolute URLs on unknown hosts", () => {
   );
 });
 
+test("buildServiceUrl rejects http (non-https) absolute URLs", () => {
+  // 許可ホストでも downgrade URL は開かない
+  assert.equal(
+    buildServiceUrl("NETFLIX", "http://www.netflix.com/watch/70176435"),
+    null,
+  );
+  assert.equal(
+    buildServiceUrl("DISNEY_PLUS", "http://www.disneyplus.com/video/abc"),
+    null,
+  );
+});
+
 test("buildServiceUrl rejects absolute URLs that don't match the service", () => {
   // 未知のサービスコードは許可ホストのURLでも開かない
   assert.equal(

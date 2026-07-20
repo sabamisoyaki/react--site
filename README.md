@@ -38,13 +38,13 @@ Use the Codex harness scripts to keep AI-driven changes inside a repeatable vali
 
 Codex may inspect git state and can submit PR reviews or comments when explicitly requested, but it does not run commit, push, tag, PR creation, or merge commands. When those steps are needed, it prints suggested commands for you to run manually.
 
-Repository-specific Codex guidance lives in [AGENTS.md](/home/hiiro/repos/FigFingers/react--site/AGENTS.md:1) and the operational workflow is documented in [docs/ai-development.md](/home/hiiro/repos/FigFingers/react--site/docs/ai-development.md:1).
+Repository-specific Codex guidance lives in [AGENTS.md](AGENTS.md) and the operational workflow is documented in [docs/ai-development.md](docs/ai-development.md).
 
 ## Database
 
 This repo expects PostgreSQL. The current migration history has been rebuilt into a single init migration:
 
-- [prisma/migrations/20260430010000_init/migration.sql](/home/hiiro/repos/FigFingers/react--site/prisma/migrations/20260430010000_init/migration.sql:1)
+- [prisma/migrations/20260430010000_init/migration.sql](prisma/migrations/20260430010000_init/migration.sql)
 
 For a fresh local database:
 
@@ -54,7 +54,7 @@ npx prisma migrate reset --force
 
 ## Prisma Augment Workflow
 
-This project does not rely on plain `prisma migrate dev` alone. Partial indexes and partial unique indexes are generated from comments in [prisma/schema.prisma](/home/hiiro/repos/FigFingers/react--site/prisma/schema.prisma:1) by [scripts/prisma-augment.ts](/home/hiiro/repos/FigFingers/react--site/scripts/prisma-augment.ts:1).
+This project does not rely on plain `prisma migrate dev` alone. Partial indexes and partial unique indexes are generated from comments in [prisma/schema.prisma](prisma/schema.prisma) by [scripts/prisma-augment.ts](scripts/prisma-augment.ts).
 
 When adding a new migration:
 

@@ -79,6 +79,10 @@ export default function EasterEggs() {
     };
 
     const fireConfetti = () => {
+      // モーション控えめ設定の人には、この機能で最も動きの大きい吹雪を出さない。
+      // 発火時に評価するので、セッション途中で OS 設定を変えた場合も追従する。
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
       const batch: Particle[] = Array.from({ length: 44 }, (_, i) => ({
         id: `${Date.now()}-${i}`,
         left: Math.random() * 100,

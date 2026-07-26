@@ -307,8 +307,14 @@
   .egg-vhs-overlay,
   .egg-vhs-overlay::before,
   .egg-vhs-overlay::after,
-  .egg-vhs-dot {
+  .egg-vhs-dot,
+  .egg-toast {
     animation: none;
+  }
+  /* 吹雪は EasterEggs.tsx 側で生成自体を止めている。
+     これは万一描画された場合の保険（animation: none だと画面外に居座るだけなので消す）。 */
+  .egg-confetti {
+    display: none;
   }
   .egg-credits-scroll {
     animation-duration: 26s;

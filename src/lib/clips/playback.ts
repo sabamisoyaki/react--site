@@ -99,6 +99,7 @@ export type ClipPlayback = {
   url: string;
   starttime: number | undefined;
   endtime: number | undefined;
+  id?: number;
 };
 
 /**
@@ -107,7 +108,10 @@ export type ClipPlayback = {
  * 開けた場合 true、未対応サービスの場合 false を返す。
  */
 export function openClipPlayback(clip: ClipPlayback): boolean {
-  const { name, title, username, service, url, starttime, endtime } = clip;
+  const { name, title, username, service, url, starttime, endtime, id } = clip;
+
+  const playbackUrl = buildPlaybackUrl(service, url, starttime);
+  if (!playbackUrl) return false;
 
   // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
   document.cookie = `name=${encodeURIComponent(name)}; path=/; max-age=3600; secure; samesite=lax`;
@@ -122,13 +126,23 @@ export function openClipPlayback(clip: ClipPlayback): boolean {
   // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
   document.cookie = `url=${encodeURIComponent(url)}; path=/; max-age=3600; secure`;
 
-  const event = new CustomEvent("clipSelected", {
-    detail: { name, username, starttime, endtime },
-  });
-  window.dispatchEvent(event);
+  if (id !== undefined && Number.isSafeInteger(id) && id > 0) {
+    // biome-ignore lint/suspicious/noDocumentCookie: Extension integration reads this cookie.
+    document.cookie = `clipId=${encodeURIComponent(String(id))}; path=/; max-age=3600; secure; samesite=lax`;
+  }
 
-  const playbackUrl = buildPlaybackUrl(service, url, starttime);
-  if (!playbackUrl) return false;
+  const detail: Record<string, unknown> = {
+    name,
+    username,
+    starttime,
+    endtime,
+  };
+  if (id !== undefined && Number.isSafeInteger(id) && id > 0) {
+    detail.clipId = id;
+  }
+
+  const event = new CustomEvent("clipSelected", { detail });
+  window.dispatchEvent(event);
 
   window.open(playbackUrl, "_blank");
   return true;

@@ -305,7 +305,7 @@ export function parseBearerToken(authorizationHeader: string | null) {
   return match?.[1]?.trim() || null;
 }
 
-async function authenticateLinkedExtension(
+export async function authenticateLinkedExtension(
   extensionInstanceId: string,
   extensionAuthToken: string,
 ) {

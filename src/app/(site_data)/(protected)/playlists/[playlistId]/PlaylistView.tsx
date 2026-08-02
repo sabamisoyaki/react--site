@@ -92,8 +92,9 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
         <button
           type="button"
           onClick={() => {
-            const clips = items.map((pc) => ({
+            const clips = items.map((pc, index) => ({
               id: pc.clip.id,
+              order: index,
               clipname: pc.clip.clipName,
               title: pc.clip.title,
               service: pc.clip.service,

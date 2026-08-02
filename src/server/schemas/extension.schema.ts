@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { idSchema } from "@/server/schemas/common";
 import { legacyClipCreateBodySchema } from "@/server/schemas/legacy-clips.schema";
 
 const uuidSchema = z.uuid();
@@ -60,5 +61,30 @@ export const extensionSyncBodySchema = z
     });
   });
 
+export const extensionCommentListQuerySchema = z
+  .object({
+    extensionInstanceId: uuidSchema,
+    cursor: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  })
+  .strict();
+
+export const extensionCommentCreateBodySchema = z
+  .object({
+    extensionInstanceId: uuidSchema,
+    body: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+export const extensionClipIdParamSchema = z.object({
+  clipId: idSchema,
+});
+
 export type ExtensionLinkBody = z.infer<typeof extensionLinkBodySchema>;
 export type ExtensionSyncBody = z.infer<typeof extensionSyncBodySchema>;
+export type ExtensionCommentListQuery = z.infer<
+  typeof extensionCommentListQuerySchema
+>;
+export type ExtensionCommentCreateBody = z.infer<
+  typeof extensionCommentCreateBodySchema
+>;

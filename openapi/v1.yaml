@@ -572,6 +572,89 @@ components:
         - ok
         - acceptedItemIds
       additionalProperties: false
+    ExtensionComment:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/ID"
+        clipId:
+          $ref: "#/components/schemas/ID"
+        userId:
+          $ref: "#/components/schemas/ID"
+        username:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+          description: >
+            users.name をそのまま返す。nickname 機能が未実装のため null が
+            あり得る。表示側でフォールバックする前提。
+        body:
+          type: string
+          minLength: 1
+          maxLength: 500
+        createdAt:
+          $ref: "#/components/schemas/DateTime"
+      required:
+        - id
+        - clipId
+        - userId
+        - username
+        - body
+        - createdAt
+      additionalProperties: false
+    ExtensionCommentListResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        clipId:
+          $ref: "#/components/schemas/ID"
+        comments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExtensionComment"
+        hasNext:
+          type: boolean
+        nextCursor:
+          anyOf:
+            - $ref: "#/components/schemas/ID"
+            - type: "null"
+          description: >
+            ページ末尾コメントの id。hasNext が false のときは常に null。
+      required:
+        - ok
+        - clipId
+        - comments
+        - hasNext
+        - nextCursor
+      additionalProperties: false
+    ExtensionCommentCreateRequest:
+      type: object
+      required:
+        - extensionInstanceId
+        - body
+      properties:
+        extensionInstanceId:
+          type: string
+          format: uuid
+        body:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: trim 後 1–500 文字。前後の空白は保存前に除去される。
+      additionalProperties: false
+    ExtensionCommentCreateResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        comment:
+          $ref: "#/components/schemas/ExtensionComment"
+      required:
+        - ok
+        - comment
+      additionalProperties: false
     Playlist:
       type: object
       properties:
@@ -726,6 +809,103 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/Conflict"
+  "/extension/clips/{clipId}/comments":
+    parameters:
+      - name: clipId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ID"
+    get:
+      operationId: extension.clips.comments.list
+      x-permission: extension
+      tags:
+        - Utilities
+      summary: List comments on a clip from a linked extension instance
+      description: >
+        並びは id DESC（新しい順）。連携済みユーザーであれば、自分が所有しない
+
+        クリップのコメントも閲覧できる（所有チェック無し）。閲覧は高頻度になるため
+
+        GET では last_seen_at を更新しない。論理削除されたクリップ・コメントは
+
+        存在しないものとして扱う。
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: extensionInstanceId
+          in: query
+          required: true
+          description: >
+            GET にボディが無いため query で渡す。プリフライトの allow-headers を
+
+            増やさないため、カスタムヘッダは使わない。
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          description: この id より小さいコメントを返す（id < cursor）
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Comments on the clip
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtensionCommentListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: extension.clips.comments.create
+      x-permission: extension
+      tags:
+        - Utilities
+      summary: Post a comment on a clip from a linked extension instance
+      description: >
+        投稿者は Bearer トークンに紐づく linkedExtension.userId。連携済みユーザーで
+
+        あれば、自分が所有しないクリップにも投稿できる。POST は last_seen_at を
+
+        更新する。初版ではレート制限・冪等性キーを持たない。
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtensionCommentCreateRequest"
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtensionCommentCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /me:
     get:
       operationId: users.meGet

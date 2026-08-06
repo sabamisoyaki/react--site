@@ -37,12 +37,17 @@ export async function listClipCommentsByIdCursor(
   };
 }
 
-export async function createClipComment(
+// 他のリポジトリ関数と違い、呼び出し側から Prisma クライアントを受け取る。
+// コメント作成は linked_extensions.last_seen_at の更新と同一トランザクションに
+// 入れる必要があり、サービス側の $transaction が渡す tx を使うため。
+// 単体で使う場合は既定の prisma がそのまま入る。
+export function createClipComment(
   clipId: number,
   userId: number,
   body: string,
+  db: Prisma.TransactionClient = prisma,
 ) {
-  return prisma.clipComment.create({
+  return db.clipComment.create({
     data: {
       clipId: BigInt(clipId),
       userId: BigInt(userId),

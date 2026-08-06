@@ -1,6 +1,9 @@
 import { prisma } from "@/server/db";
 import { NotFoundError } from "@/server/http/errors";
-import { listClipCommentsByIdCursor } from "@/server/repositories/comments";
+import {
+  createClipComment,
+  listClipCommentsByIdCursor,
+} from "@/server/repositories/comments";
 import { authenticateLinkedExtension } from "@/server/services/extensions";
 
 type CommentWithUsername = {
@@ -72,14 +75,12 @@ export async function createExtensionClipComment(
   const now = new Date();
 
   const comment = await prisma.$transaction(async (tx) => {
-    const created = await tx.clipComment.create({
-      data: {
-        clipId,
-        userId: linkedExtension.userId,
-        body,
-      },
-      include: { user: { select: { name: true } } },
-    });
+    const created = await createClipComment(
+      clipId,
+      linkedExtension.userId,
+      body,
+      tx,
+    );
 
     await tx.$executeRaw`
       UPDATE linked_extensions

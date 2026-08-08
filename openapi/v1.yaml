@@ -655,6 +655,48 @@ components:
         - ok
         - comment
       additionalProperties: false
+    ClipComment:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/ID"
+        clipId:
+          $ref: "#/components/schemas/ID"
+        userId:
+          $ref: "#/components/schemas/ID"
+        username:
+          type:
+            - string
+            - "null"
+          maxLength: 255
+          description: >
+            users.name をそのまま返す。nickname 機能が未実装のため null が
+            あり得る。表示側でフォールバックする前提。
+        body:
+          type: string
+          minLength: 1
+          maxLength: 500
+        createdAt:
+          $ref: "#/components/schemas/DateTime"
+      required:
+        - id
+        - clipId
+        - userId
+        - username
+        - body
+        - createdAt
+      additionalProperties: false
+    ClipCommentCreate:
+      type: object
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: trim 後 1–500 文字。前後の空白は保存前に除去される。
+      additionalProperties: false
     Playlist:
       type: object
       properties:
@@ -1713,6 +1755,85 @@ paths:
           description: Deleted
         "400":
           $ref: "#/components/responses/BadRequest"
+  "/clips/{clipId}/comments":
+    parameters:
+      - name: clipId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ID"
+    get:
+      operationId: clips.comments.list
+      x-permission: public
+      tags:
+        - Clips
+      summary: List comments on a clip
+      description: >
+        並びは id DESC（新しい順）で、拡張API `/extension/clips/{clipId}/comments`
+
+        と同一。カーソルは v1 の流儀どおり不透明文字列（meta.nextCursor）で、
+
+        拡張API が返す生の数値 id とは互換性がない。論理削除されたクリップ・
+
+        コメントは存在しないものとして扱う。
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
+      responses:
+        "200":
+          description: Comments on the clip
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ClipComment"
+                  meta:
+                    $ref: "#/components/schemas/CursorPaginationMeta"
+                required:
+                  - data
+                  - meta
+                additionalProperties: false
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: clips.comments.create
+      x-permission: auth
+      tags:
+        - Clips
+      summary: Post a comment on a clip (current user)
+      description: >
+        投稿者はセッションのユーザー。自分が所有しないクリップにも投稿できる
+
+        （拡張API と同じ可視性）。初版ではレート制限・冪等性キー・削除を持たない。
+      security:
+        - nextAuthSession: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClipCommentCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClipComment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   "/clips/{clipId}/view":
     parameters:
       - name: clipId

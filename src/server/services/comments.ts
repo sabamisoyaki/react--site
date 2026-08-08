@@ -1,5 +1,6 @@
 import { prisma } from "@/server/db";
-import { NotFoundError } from "@/server/http/errors";
+import { BadRequestError, NotFoundError } from "@/server/http/errors";
+import { type CursorPayload, encodeCursor } from "@/server/http/pagination";
 import {
   createClipComment,
   listClipCommentsByIdCursor,
@@ -15,14 +16,23 @@ type CommentWithUsername = {
   createdAt: Date;
 };
 
-export async function listExtensionClipComments(
-  extensionInstanceId: string,
-  token: string,
-  clipId: number,
-  opts: { cursor?: number; limit?: number } = {},
-) {
-  await authenticateLinkedExtension(extensionInstanceId, token);
+type CommentRow = Awaited<
+  ReturnType<typeof listClipCommentsByIdCursor>
+>["comments"][number];
 
+function toCommentView(row: CommentRow): CommentWithUsername {
+  return {
+    id: row.id,
+    clipId: row.clipId,
+    userId: row.userId,
+    username: row.user.name,
+    body: row.body,
+    createdAt: row.createdAt,
+  };
+}
+
+/** 論理削除されたクリップは「存在しない」として扱う（拡張API・v1 共通の契約）。 */
+async function assertClipIsActive(clipId: number) {
   const clip = await prisma.clip.findFirst({
     where: { id: BigInt(clipId), deletedAt: null },
     select: { id: true },
@@ -31,6 +41,16 @@ export async function listExtensionClipComments(
   if (!clip) {
     throw new NotFoundError("Clip not found");
   }
+}
+
+export async function listExtensionClipComments(
+  extensionInstanceId: string,
+  token: string,
+  clipId: number,
+  opts: { cursor?: number; limit?: number } = {},
+) {
+  await authenticateLinkedExtension(extensionInstanceId, token);
+  await assertClipIsActive(clipId);
 
   const { comments, hasNext, nextCursor } = await listClipCommentsByIdCursor(
     clipId,
@@ -39,14 +59,7 @@ export async function listExtensionClipComments(
 
   return {
     clipId,
-    comments: comments.map((row) => ({
-      id: row.id,
-      clipId: row.clipId,
-      userId: row.userId,
-      username: row.user.name,
-      body: row.body,
-      createdAt: row.createdAt,
-    })) as CommentWithUsername[],
+    comments: comments.map(toCommentView),
     hasNext,
     nextCursor,
   };
@@ -62,15 +75,7 @@ export async function createExtensionClipComment(
     extensionInstanceId,
     token,
   );
-
-  const clip = await prisma.clip.findFirst({
-    where: { id: BigInt(clipId), deletedAt: null },
-    select: { id: true },
-  });
-
-  if (!clip) {
-    throw new NotFoundError("Clip not found");
-  }
+  await assertClipIsActive(clipId);
 
   const now = new Date();
 
@@ -91,14 +96,55 @@ export async function createExtensionClipComment(
     return created;
   });
 
+  return { comment: toCommentView(comment) };
+}
+
+// v1 のカーソルは site 流儀の base64 不透明カーソル（encodeCursor）だが、
+// 並び順・絞り込みは拡張API と同じ id DESC / id < cursor に揃える。
+// 両APIで並びが割れると同じクリップを別順で見ることになり、
+// 部分インデックス (clip_id, id) WHERE deleted_at IS NULL もそのまま効く。
+// createdAt もカーソルに載せるのは encodeCursor の署名に合わせるためで、
+// 絞り込みには使わない。
+function decodeCommentCursorId(cursor?: CursorPayload | null) {
+  if (!cursor) return undefined;
+
+  const id = Number.parseInt(cursor.i, 10);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new BadRequestError("Invalid cursor", "INVALID_CURSOR");
+  }
+
+  return id;
+}
+
+export async function listClipCommentsPage(
+  clipId: number,
+  opts: { cursor?: CursorPayload | null; limit?: number } = {},
+) {
+  await assertClipIsActive(clipId);
+
+  const { comments, hasNext } = await listClipCommentsByIdCursor(clipId, {
+    cursor: decodeCommentCursorId(opts.cursor),
+    limit: opts.limit,
+  });
+
+  const last = comments.at(-1);
+
   return {
-    comment: {
-      id: comment.id,
-      clipId: comment.clipId,
-      userId: comment.userId,
-      username: comment.user.name,
-      body: comment.body,
-      createdAt: comment.createdAt,
-    } as CommentWithUsername,
+    data: comments.map(toCommentView),
+    hasNext,
+    nextCursor: hasNext && last ? encodeCursor(last.createdAt, last.id) : null,
   };
+}
+
+export async function createClipCommentAsUser(
+  userId: number,
+  clipId: number,
+  body: string,
+) {
+  await assertClipIsActive(clipId);
+
+  // 拡張経路と違い last_seen_at の更新が無いため、トランザクションは不要。
+  const comment = await createClipComment(clipId, userId, body);
+
+  return toCommentView(comment);
 }

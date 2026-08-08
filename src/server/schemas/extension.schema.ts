@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { clipCommentBodySchema } from "@/server/schemas/comments.schema";
 import { idSchema } from "@/server/schemas/common";
 import { legacyClipCreateBodySchema } from "@/server/schemas/legacy-clips.schema";
 
@@ -72,7 +73,7 @@ export const extensionCommentListQuerySchema = z
 export const extensionCommentCreateBodySchema = z
   .object({
     extensionInstanceId: uuidSchema,
-    body: z.string().trim().min(1).max(500),
+    body: clipCommentBodySchema,
   })
   .strict();
 

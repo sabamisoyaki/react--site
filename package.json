@@ -15,7 +15,7 @@
     "test:account": "node --test \"tests/account/accountViewModel.test.mjs\"",
     "test:search": "node --test \"tests/search/utils.test.mjs\"",
     "test:clips": "node --test \"tests/clips/playback.test.mjs\"",
-    "test:comments": "node --import tsx --test \"tests/comments/extension-comments.schema.test.mjs\"",
+    "test:comments": "node --import tsx --test \"tests/comments/*.test.mjs\"",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit --pretty false",
     "codex:quick": "node scripts/codex-harness.mjs quick",
     "codex:schema": "node scripts/codex-harness.mjs schema",

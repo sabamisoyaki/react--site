@@ -45,9 +45,10 @@ function Clip({
       url,
       starttime,
       endtime,
+      id: Number(Id),
     };
     if (openClipPlayback(clip)) {
-      recordRecentClip({ ...clip, id: Number(Id) });
+      recordRecentClip(clip);
     } else {
       alert(
         // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.

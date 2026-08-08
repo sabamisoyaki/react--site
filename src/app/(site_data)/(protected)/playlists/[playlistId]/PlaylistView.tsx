@@ -15,6 +15,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useEffect, useMemo, useState } from "react";
+import { clearPlaybackClipId } from "@/lib/clips/playback";
 import SortableClipItem from "./SortableClipItem";
 
 interface Clip {
@@ -92,8 +93,11 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
         <button
           type="button"
           onClick={() => {
-            const clips = items.map((pc) => ({
+            // id / order / 配列順が拡張との契約。order は 0 始まりの配列
+            // インデックスで、拡張はこれで再生中クリップを解決する。
+            const clips = items.map((pc, index) => ({
               id: pc.clip.id,
+              order: index,
               clipname: pc.clip.clipName,
               title: pc.clip.title,
               service: pc.clip.service,
@@ -103,6 +107,10 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
               endTime: pc.clip.endTime,
             }));
 
+            // 直前の単体再生で残った clipId cookie を消してから開始する。
+            // 残すと拡張がプレイリストと無関係なクリップを現在クリップと
+            // 解決しうる（cookie の寿命は 1 時間）。
+            clearPlaybackClipId();
             localStorage.setItem("playQueue", JSON.stringify(clips));
             window.postMessage({ type: "PLAY_PLAYLIST_START" });
           }}

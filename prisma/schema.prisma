@@ -38,6 +38,7 @@ model User {
   usersVods         UserVod[]
   linkedExtensions  LinkedExtension[]
   extensionLinkTokens ExtensionLinkToken[]
+  clipComments      ClipComment[]
 
   /// @@partialUnique([email])
   @@map("users")
@@ -95,10 +96,27 @@ model Clip {
 
   favorites      FavoriteClip[]
   clipsPlaylists ClipPlaylist[]
+  comments       ClipComment[]
 
   /// @@partialIndex([userId, createdAt])
   /// @@partialIndex([vodId, createdAt])
   @@map("clips")
+}
+
+model ClipComment {
+  id        BigInt    @id @default(autoincrement()) @db.BigInt
+  clipId    BigInt    @map("clip_id") @db.BigInt
+  userId    BigInt    @map("user_id") @db.BigInt
+  body      String    @db.VarChar(500)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// @@partialIndex([clipId, id])
+  @@map("clip_comments")
 }
 
 model Playlist {

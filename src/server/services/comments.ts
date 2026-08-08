@@ -66,6 +66,24 @@ async function assertClipIsActive(clipId: number) {
   return clip;
 }
 
+/**
+ * 時刻アンカーの範囲検証。v1 と拡張API で共通。
+ * 境界は両端とも含む（拡張側は送信前にクランプする方針だが、
+ * 丸め誤差でちょうど端に乗るため）。
+ */
+function assertAtMsInClipRange(
+  atMs: number | null | undefined,
+  clip: { startMs: number; endMs: number },
+) {
+  if (atMs != null && (atMs < clip.startMs || atMs > clip.endMs)) {
+    throw new BadRequestError(
+      "atMs must be within the clip range",
+      "AT_MS_OUT_OF_RANGE",
+      { atMs, startMs: clip.startMs, endMs: clip.endMs },
+    );
+  }
+}
+
 export async function listExtensionClipComments(
   extensionInstanceId: string,
   token: string,
@@ -93,23 +111,23 @@ export async function createExtensionClipComment(
   token: string,
   clipId: number,
   body: string,
+  atMs?: number | null,
 ) {
   const linkedExtension = await authenticateLinkedExtension(
     extensionInstanceId,
     token,
   );
-  await assertClipIsActive(clipId);
+  const clip = await assertClipIsActive(clipId);
+  assertAtMsInClipRange(atMs, clip);
 
   const now = new Date();
 
   const comment = await prisma.$transaction(async (tx) => {
-    // atMs は拡張API の Phase 1 契約に無いので常に null。
-    // 拡張側と合意できたら body に atMs を足してここを通す。
     const created = await createClipComment(
       clipId,
       linkedExtension.userId,
       body,
-      null,
+      atMs ?? null,
       tx,
     );
 
@@ -169,16 +187,7 @@ export async function createClipCommentAsUser(
   atMs?: number | null,
 ) {
   const clip = await assertClipIsActive(clipId);
-
-  // クリップの区間外を指すアンカーは意味を持たないので弾く。
-  // 境界は両端とも含む（拡張が報告する再生位置の丸め誤差を許容するため）。
-  if (atMs != null && (atMs < clip.startMs || atMs > clip.endMs)) {
-    throw new BadRequestError(
-      "atMs must be within the clip range",
-      "AT_MS_OUT_OF_RANGE",
-      { atMs, startMs: clip.startMs, endMs: clip.endMs },
-    );
-  }
+  assertAtMsInClipRange(atMs, clip);
 
   // 拡張経路と違い last_seen_at の更新が無いため、トランザクションは不要。
   const comment = await createClipComment(clipId, userId, body, atMs ?? null);

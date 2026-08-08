@@ -593,6 +593,21 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+        atMs:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          description: >
+            時刻アンカー。clips.startMs / endMs と同じ「動画内の位置」座標系の
+
+            ミリ秒で、クリップ先頭からの相対時間ではない。null は
+
+            「クリップ全体へのコメント」。2026-08-06 に拡張リポと合意して追加。
+
+            **常に存在する**（値が無いときは null）ので、拡張側は
+
+            キーの有無ではなく null かどうかで判定してよい。
         createdAt:
           $ref: "#/components/schemas/DateTime"
       required:
@@ -601,6 +616,7 @@ components:
         - userId
         - username
         - body
+        - atMs
         - createdAt
       additionalProperties: false
     ExtensionCommentListResponse:
@@ -643,6 +659,19 @@ components:
           minLength: 1
           maxLength: 500
           description: trim 後 1–500 文字。前後の空白は保存前に除去される。
+        atMs:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          description: >
+            任意。省略・null で「クリップ全体へのコメント」。指定する場合は
+
+            clip.startMs 以上 clip.endMs 以下（両端含む）。範囲外は 400
+
+            (AT_MS_OUT_OF_RANGE)。拡張側は送信前にクランプする方針だが、
+
+            サーバー側の検証は保険として残している。
       additionalProperties: false
     ExtensionCommentCreateResponse:
       type: object

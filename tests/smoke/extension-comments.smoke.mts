@@ -143,6 +143,7 @@ try {
       "comment のキーが契約どおり",
       JSON.stringify(Object.keys(r.json.comment ?? {}).sort()) ===
         JSON.stringify([
+          "atMs",
           "body",
           "clipId",
           "createdAt",
@@ -152,6 +153,7 @@ try {
         ]),
       Object.keys(r.json.comment ?? {}),
     );
+    eq("atMs 省略時は null", r.json.comment?.atMs, null);
     if (r.json.comment?.id) createdCommentIds.push(BigInt(r.json.comment.id));
 
     eq(
@@ -205,40 +207,96 @@ try {
     );
   }
 
-  console.log("\nv1 で足したフィールドが拡張契約に漏れないこと");
+  console.log("\n時刻アンカー atMs（2026-08-06 解禁）");
   {
-    // v1 経由で時刻アンカー付きのコメントを作り、拡張レスポンスに atMs が
-    // 出てこないことを確認する。ExtensionComment は OpenAPI で
-    // additionalProperties: false なので、漏れると拡張側の検証が壊れる。
     const range = await prisma.clip.findUniqueOrThrow({
       where: { id: BigInt(clipId) },
-      select: { startMs: true },
+      select: { startMs: true, endMs: true },
     });
-    const anchored = await prisma.clipComment.create({
+
+    // 拡張から atMs 付きで投稿できる
+    const posted = await req(`/api/extension/clips/${clipId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({
+        extensionInstanceId: instanceId,
+        body: "この場面",
+        atMs: range.startMs,
+      }),
+    });
+    eq("atMs 付きの投稿は 201", posted.status, 201);
+    eq("atMs がそのまま返る", posted.json.comment?.atMs, range.startMs);
+    if (posted.json.comment?.id)
+      createdCommentIds.push(BigInt(posted.json.comment.id));
+
+    eq(
+      "endMs ちょうども 201（両端を含む）",
+      (
+        await req(`/api/extension/clips/${clipId}/comments`, {
+          method: "POST",
+          body: JSON.stringify({
+            extensionInstanceId: instanceId,
+            body: "終端",
+            atMs: range.endMs,
+          }),
+        })
+      ).status,
+      201,
+    );
+
+    const oob = await req(`/api/extension/clips/${clipId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({
+        extensionInstanceId: instanceId,
+        body: "範囲外",
+        atMs: range.endMs + 1,
+      }),
+    });
+    eq("範囲外は 400", oob.status, 400);
+    eq("code が AT_MS_OUT_OF_RANGE", oob.json.code, "AT_MS_OUT_OF_RANGE");
+
+    eq(
+      "atMs: null も 201",
+      (
+        await req(`/api/extension/clips/${clipId}/comments`, {
+          method: "POST",
+          body: JSON.stringify({
+            extensionInstanceId: instanceId,
+            body: "全体宛て",
+            atMs: null,
+          }),
+        })
+      ).status,
+      201,
+    );
+
+    // v1 で付けた atMs も拡張API から見える（両API が同じ列を見ている）
+    const viaV1 = await prisma.clipComment.create({
       data: {
         clipId: BigInt(clipId),
         userId: clip.userId,
-        body: "拡張契約チェック用",
+        body: "v1 由来のアンカー",
         atMs: range.startMs,
       },
       select: { id: true },
     });
-    createdCommentIds.push(anchored.id);
+    createdCommentIds.push(viaV1.id);
 
     const r = await req(
       `/api/extension/clips/${clipId}/comments?extensionInstanceId=${instanceId}&limit=100`,
     );
-    const row = r.json.comments.find((c: any) => c.id === Number(anchored.id));
-    check("対象コメントが拡張API にも出る", !!row, r.json.comments);
+    const row = r.json.comments.find((c: any) => c.id === Number(viaV1.id));
+    check("v1 由来のコメントも拡張API に出る", !!row, r.json.comments);
+    eq("一覧でも atMs が返る", row?.atMs, range.startMs);
     check(
-      "拡張レスポンスに atMs が含まれない",
-      row != null && !("atMs" in row),
-      row,
+      "atMs はキーとして常に存在する（値が無ければ null）",
+      r.json.comments.every((c: any) => "atMs" in c),
+      r.json.comments.map((c: any) => Object.keys(c)),
     );
     check(
-      "拡張の ClipComment キーは Phase 1 のまま",
+      "ExtensionComment のキーが OpenAPI どおり",
       JSON.stringify(Object.keys(row ?? {}).sort()) ===
         JSON.stringify([
+          "atMs",
           "body",
           "clipId",
           "createdAt",

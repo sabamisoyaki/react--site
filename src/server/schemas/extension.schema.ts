@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { clipCommentBodySchema } from "@/server/schemas/comments.schema";
+import {
+  clipCommentAtMsSchema,
+  clipCommentBodySchema,
+} from "@/server/schemas/comments.schema";
 import { idSchema } from "@/server/schemas/common";
 import { legacyClipCreateBodySchema } from "@/server/schemas/legacy-clips.schema";
 
@@ -74,6 +77,10 @@ export const extensionCommentCreateBodySchema = z
   .object({
     extensionInstanceId: uuidSchema,
     body: clipCommentBodySchema,
+    // 2026-08-06 に拡張リポと合意して解禁。省略・null は「クリップ全体へのコメント」。
+    // 拡張側は送信前に [startMs, endMs] へクランプする方針なので、
+    // サーバー側の範囲検証は保険として残す（超過は 400 AT_MS_OUT_OF_RANGE）。
+    atMs: clipCommentAtMsSchema,
   })
   .strict();
 

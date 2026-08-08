@@ -71,16 +71,18 @@ export async function GET(
       {
         ok: true,
         clipId: result.clipId,
-        // Phase 1 の契約に固定するため、サービスの戻り値をそのまま流さず
-        // フィールドを明示的に列挙する。ExtensionComment は OpenAPI で
-        // additionalProperties: false なので、v1 側に足したフィールド
-        // （atMs など）がここに漏れると拡張側の厳格な検証が壊れる。
+        // ExtensionComment は OpenAPI で additionalProperties: false なので、
+        // サービスの戻り値を素通しせずフィールドを明示列挙する。
+        // v1 に足したフィールドが自動で拡張契約に漏れないようにするための境界。
+        // atMs は 2026-08-06 に拡張リポと合意して追加した（常に存在し、
+        // 値が無いときは null）。
         comments: result.comments.map((c) => ({
           id: Number(c.id),
           clipId: Number(c.clipId),
           userId: Number(c.userId),
           username: c.username,
           body: c.body,
+          atMs: c.atMs,
           createdAt: c.createdAt.toISOString(),
         })),
         hasNext: result.hasNext,
@@ -137,17 +139,20 @@ export async function POST(
       extensionAuthToken,
       clipId,
       body.body,
+      body.atMs,
     );
 
     return json(
       {
         ok: true,
+        // GET と同じ理由でフィールドを明示列挙する（上のコメント参照）
         comment: {
           id: Number(result.comment.id),
           clipId: Number(result.comment.clipId),
           userId: Number(result.comment.userId),
           username: result.comment.username,
           body: result.comment.body,
+          atMs: result.comment.atMs,
           createdAt: result.comment.createdAt.toISOString(),
         },
       },

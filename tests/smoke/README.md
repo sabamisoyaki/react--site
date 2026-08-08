@@ -17,10 +17,46 @@
 ## 実行
 
 ```bash
-npm run smoke:comments    # v1 API      /api/v1/clips/{clipId}/comments
-npm run smoke:extension   # 拡張API     /api/extension/clips/{clipId}/comments（回帰用）
-npm run smoke:ui          # CommentModal の実操作（下記の追加準備が要る）
+npm run smoke:comments          # v1 API   /api/v1/clips/{clipId}/comments
+npm run smoke:extension         # 拡張API  /api/extension/clips/{clipId}/comments（回帰用）
+npm run smoke:extension-client  # 拡張リポの実クライアント ↔ サイト（結合／下記）
+npm run smoke:ui                # CommentModal の実操作（下記の追加準備が要る）
 ```
+
+### smoke:extension-client（拡張リポとの結合）
+
+`smoke:extension` が「サイトがこう返すこと」を**生 fetch で**固定するのに対し、
+こちらは**拡張リポの実クライアント（`src/background/comments.js`）を実物のまま
+import して**実サーバー + 実 DB に当てる。`chrome.storage.local` だけをスタブし、
+拡張のバリデーション・URL 組み立て・レスポンス解釈・401 時のトークン破棄まで
+拡張のコードが走る。したがって検出対象は「サイトの契約違反」ではなく
+**両リポ間のズレ**そのもの（片側だけ実装が進んだ状態で落ちる）。
+
+```bash
+EXT_REPO=H:/movieClipExtension npm run smoke:extension-client   # 既定値も同じ
+```
+
+- **接続先はポート 3000 固定**。拡張の `src/api.js` が
+  `http://localhost:3000/api/` をハードコードしているため、`SMOKE_BASE` は効かない。
+  そのハードコード自体もアサーションの1つ。
+- `Origin` だけは実クライアントで再現できない（Node の fetch は `Origin` を
+  送らず、Chrome は `chrome-extension://<id>` を付ける）。この経路のみ生 fetch で
+  `CLIP_API_ALLOWED_ORIGINS` の設定を実測している。
+- 拡張リポは webpack でバンドルされるが、このテストは**バンドル前のソース**を
+  直接読む。tsx 経由だと拡張の `.js` が CJS として読まれるため
+  （拡張の package.json に `type: module` が無い）、ローダーの差を吸収してから
+  名前付き export を取り出している。
+
+#### 既知の失敗: atMs（2 項目）
+
+2026-08-06 に「拡張も atMs を読み書きする」で合意し**サイト側だけ解禁済み**だが、
+拡張リポにはまだ実装が無い（`grep -r atMs` がヒットしない）。以下が赤になる:
+
+- 拡張のバリデータが atMs を保持する — `validatePostClipCommentInput` が捨てる
+- 拡張から送った atMs が保存される — POST ボディに載らないので `null` になる
+
+読み側（サイトが返した `atMs` が拡張の手元まで届く）は既に通っている。
+拡張側が書き側を実装したら緑になる。
 
 `smoke:ui` だけは playwright-core を使う。インストールが重いのでリポジトリの依存には
 入れていない。任意の場所に入れてパスを渡す:

@@ -5,10 +5,13 @@ import { test } from "node:test";
 
 // tsconfig paths を解決するため tsx 経由で読み込む（test:comments を参照）
 const {
+  CLIP_COMMENT_REPORT_REASONS,
   clipCommentBodySchema,
   clipCommentCreateBodySchema,
+  clipCommentIdParamSchema,
   clipCommentListQuerySchema,
   clipCommentParamSchema,
+  clipCommentReportCreateBodySchema,
 } = await import("../../src/server/schemas/comments.schema.ts");
 const { extensionCommentCreateBodySchema } = await import(
   "../../src/server/schemas/extension.schema.ts"
@@ -55,6 +58,26 @@ test("clipCommentCreateBodySchema", async (t) => {
   await t.test(".strict() rejects unknown keys", () => {
     const result = schema.safeParse({ body: "x", clipId: 1 });
     assert.equal(result.success, false);
+  });
+
+  await t.test("atMs は省略できる（クリップ全体へのコメント）", () => {
+    const result = schema.safeParse({ body: "x" });
+    assert.equal(result.success, true);
+    assert.equal(result.data.atMs, undefined);
+  });
+
+  await t.test("atMs は null を受ける", () => {
+    const result = schema.safeParse({ body: "x", atMs: null });
+    assert.equal(result.success, true);
+    assert.equal(result.data.atMs, null);
+  });
+
+  await t.test("atMs は 0 以上の整数", () => {
+    assert.equal(schema.safeParse({ body: "x", atMs: 0 }).success, true);
+    assert.equal(schema.safeParse({ body: "x", atMs: 12_345 }).success, true);
+    assert.equal(schema.safeParse({ body: "x", atMs: -1 }).success, false);
+    assert.equal(schema.safeParse({ body: "x", atMs: 1.5 }).success, false);
+    assert.equal(schema.safeParse({ body: "x", atMs: "10" }).success, false);
   });
 
   await t.test("extensionInstanceId is not accepted here", () => {
@@ -157,6 +180,92 @@ test("clipCommentParamSchema coerces the path segment", async (t) => {
     );
     assert.equal(
       clipCommentParamSchema.safeParse({ clipId: "abc" }).success,
+      false,
+    );
+  });
+});
+
+test("clipCommentIdParamSchema", async (t) => {
+  await t.test("both ids are coerced", () => {
+    const result = clipCommentIdParamSchema.safeParse({
+      clipId: "42",
+      commentId: "7",
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.data.clipId, 42);
+    assert.equal(result.data.commentId, 7);
+  });
+
+  await t.test("commentId must be present", () => {
+    assert.equal(
+      clipCommentIdParamSchema.safeParse({ clipId: "42" }).success,
+      false,
+    );
+  });
+
+  await t.test("commentId rejects 0, negative and non-numeric", () => {
+    for (const commentId of ["0", "-1", "abc"]) {
+      assert.equal(
+        clipCommentIdParamSchema.safeParse({ clipId: "42", commentId }).success,
+        false,
+        `commentId=${commentId}`,
+      );
+    }
+  });
+});
+
+test("clipCommentReportCreateBodySchema", async (t) => {
+  const schema = clipCommentReportCreateBodySchema;
+
+  await t.test("宣言された理由をすべて受ける", () => {
+    for (const reason of CLIP_COMMENT_REPORT_REASONS) {
+      assert.equal(schema.safeParse({ reason }).success, true, reason);
+    }
+  });
+
+  await t.test("理由の一覧は OpenAPI の enum と一致", () => {
+    assert.deepEqual(
+      [...CLIP_COMMENT_REPORT_REASONS],
+      ["spam", "harassment", "spoiler", "other"],
+    );
+  });
+
+  await t.test("未知の理由は拒否", () => {
+    assert.equal(schema.safeParse({ reason: "because" }).success, false);
+    assert.equal(schema.safeParse({ reason: "" }).success, false);
+  });
+
+  await t.test("reason は必須", () => {
+    assert.equal(schema.safeParse({}).success, false);
+    assert.equal(schema.safeParse({ note: "x" }).success, false);
+  });
+
+  await t.test("note は任意で trim される", () => {
+    const result = schema.safeParse({ reason: "other", note: "  ひどい  " });
+    assert.equal(result.success, true);
+    assert.equal(result.data.note, "ひどい");
+  });
+
+  await t.test("note は null を受ける", () => {
+    const result = schema.safeParse({ reason: "spam", note: null });
+    assert.equal(result.success, true);
+    assert.equal(result.data.note, null);
+  });
+
+  await t.test("note の上限は 500 文字", () => {
+    assert.equal(
+      schema.safeParse({ reason: "spam", note: "a".repeat(500) }).success,
+      true,
+    );
+    assert.equal(
+      schema.safeParse({ reason: "spam", note: "a".repeat(501) }).success,
+      false,
+    );
+  });
+
+  await t.test(".strict() rejects unknown keys", () => {
+    assert.equal(
+      schema.safeParse({ reason: "spam", commentId: 1 }).success,
       false,
     );
   });

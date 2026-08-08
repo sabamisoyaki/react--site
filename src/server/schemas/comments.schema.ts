@@ -8,14 +8,45 @@ export const clipCommentBodySchema = z.string().trim().min(1).max(500);
 
 export const clipCommentListQuerySchema = cursorPaginationQuerySchema;
 
+// 時刻アンカー。clips.start_ms / end_ms と同じ「動画内の位置」座標系のミリ秒。
+// 省略・null は「クリップ全体へのコメント」。範囲がクリップ内に収まるかは
+// クリップを読まないと判定できないのでサービス層で検証する。
+export const clipCommentAtMsSchema = z.number().int().min(0).nullish();
+
 export const clipCommentCreateBodySchema = z
   .object({
     body: clipCommentBodySchema,
+    atMs: clipCommentAtMsSchema,
   })
   .strict();
 
 export const clipCommentParamSchema = z.object({ clipId: idSchema });
 
+export const clipCommentIdParamSchema = z.object({
+  clipId: idSchema,
+  commentId: idSchema,
+});
+
+// 通報理由。DB は VarChar(32) の素の文字列で、値の妥当性はここで担保する。
+// 「その他」を選んだときだけ note が意味を持つが、必須にはしない。
+export const CLIP_COMMENT_REPORT_REASONS = [
+  "spam",
+  "harassment",
+  "spoiler",
+  "other",
+] as const;
+
+export const clipCommentReportCreateBodySchema = z
+  .object({
+    reason: z.enum(CLIP_COMMENT_REPORT_REASONS),
+    note: z.string().trim().max(500).optional().nullable(),
+  })
+  .strict();
+
 export type ClipCommentListQuery = z.infer<typeof clipCommentListQuerySchema>;
 export type ClipCommentCreateBody = z.infer<typeof clipCommentCreateBodySchema>;
 export type ClipCommentParam = z.infer<typeof clipCommentParamSchema>;
+export type ClipCommentIdParam = z.infer<typeof clipCommentIdParamSchema>;
+export type ClipCommentReportCreateBody = z.infer<
+  typeof clipCommentReportCreateBodySchema
+>;

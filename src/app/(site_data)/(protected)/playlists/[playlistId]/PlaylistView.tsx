@@ -23,6 +23,7 @@ interface Clip {
   title: string;
   clipName: string;
   user: string;
+  ownerId: number;
   service: string;
   startTime: number;
   endTime: number;

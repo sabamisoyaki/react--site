@@ -676,6 +676,17 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+        atMs:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          description: >
+            時刻アンカー。clips.startMs / endMs と同じ「動画内の位置」座標系の
+
+            ミリ秒。null は「クリップ全体へのコメント」。拡張API の
+
+            ExtensionComment には含まれない（Phase 1 契約を維持するため）。
         createdAt:
           $ref: "#/components/schemas/DateTime"
       required:
@@ -684,6 +695,7 @@ components:
         - userId
         - username
         - body
+        - atMs
         - createdAt
       additionalProperties: false
     ClipCommentCreate:
@@ -696,6 +708,62 @@ components:
           minLength: 1
           maxLength: 500
           description: trim 後 1–500 文字。前後の空白は保存前に除去される。
+        atMs:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+          description: >
+            省略・null で「クリップ全体へのコメント」。指定する場合は
+
+            clip.startMs 以上 clip.endMs 以下（両端含む）。範囲外は 400
+
+            (AT_MS_OUT_OF_RANGE)。
+      additionalProperties: false
+    ClipCommentReportCreate:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          enum:
+            - spam
+            - harassment
+            - spoiler
+            - other
+        note:
+          type:
+            - string
+            - "null"
+          maxLength: 500
+          description: 補足。trim 後に空なら null として保存される。
+      additionalProperties: false
+    ClipCommentReportCreated:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/ID"
+        commentId:
+          $ref: "#/components/schemas/ID"
+      required:
+        - id
+        - commentId
+      additionalProperties: false
+    ReportedClipComment:
+      type: object
+      properties:
+        comment:
+          $ref: "#/components/schemas/ClipComment"
+        reportCount:
+          type: integer
+          minimum: 1
+        lastReportedAt:
+          $ref: "#/components/schemas/DateTime"
+      required:
+        - comment
+        - reportCount
+        - lastReportedAt
       additionalProperties: false
     Playlist:
       type: object
@@ -1832,6 +1900,147 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  "/clips/{clipId}/comments/{commentId}":
+    parameters:
+      - name: clipId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ID"
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ID"
+    delete:
+      operationId: clips.comments.delete
+      x-permission: authorOrClipOwner
+      tags:
+        - Clips
+      summary: Delete a comment (author or clip owner)
+      description: >
+        論理削除。消せるのは投稿者本人か、そのコメントが付いているクリップの
+
+        所有者（モデレーション）。このアプリに管理者ロールは存在しないため、
+
+        横断的なモデレーション権限は無い。既に削除済みのコメントは 404。
+      security:
+        - nextAuthSession: []
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Neither the comment author nor the clip owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  "/clips/{clipId}/comments/{commentId}/reports":
+    parameters:
+      - name: clipId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ID"
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ID"
+    post:
+      operationId: clips.comments.reports.create
+      x-permission: auth
+      tags:
+        - Clips
+      summary: Report a comment
+      description: >
+        通報の宛先はクリップ所有者。このアプリに管理者ロールが無いため、
+
+        横断的に通報を確認できる人は存在しない。自分のコメントは通報できない
+
+        （消せばよい）。同じ人が同じコメントを二重通報すると 409。
+      security:
+        - nextAuthSession: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClipCommentReportCreate"
+      responses:
+        "201":
+          description: Reported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClipCommentReportCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  "/clips/{clipId}/comment-reports":
+    parameters:
+      - name: clipId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ID"
+    get:
+      operationId: clips.commentReports.list
+      x-permission: clipOwner
+      tags:
+        - Clips
+      summary: List reports on this clip's comments (clip owner only)
+      description: >
+        クリップ所有者だけが見られる。通報の付いた、まだ削除されていない
+
+        コメントを通報件数の降順で返す。件数が通報のあるコメント数で
+
+        頭打ちになるためページングを持たない。
+
+        パスを /comments/reports にしていないのは、同階層の {commentId} と
+
+        静的/動的セグメントの優先順位で解決が決まる形になり紛らわしいため。
+      security:
+        - nextAuthSession: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Reported comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReportedClipComment"
+                required:
+                  - data
+                additionalProperties: false
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Not the clip owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/NotFound"
   "/clips/{clipId}/view":

@@ -29,6 +29,7 @@ function Clip({
   starttime,
   endtime,
   userId,
+  ownerId,
   Id,
 }) {
   const playable = buildServiceUrl(icon, url) !== null;
@@ -131,6 +132,7 @@ function Clip({
         onClose={() => setIsCommentOpen(false)}
         clipId={Id}
         userId={userId}
+        clipOwnerId={ownerId}
       />
     </article>
   );

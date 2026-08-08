@@ -71,6 +71,10 @@ export async function GET(
       {
         ok: true,
         clipId: result.clipId,
+        // Phase 1 の契約に固定するため、サービスの戻り値をそのまま流さず
+        // フィールドを明示的に列挙する。ExtensionComment は OpenAPI で
+        // additionalProperties: false なので、v1 側に足したフィールド
+        // （atMs など）がここに漏れると拡張側の厳格な検証が壊れる。
         comments: result.comments.map((c) => ({
           id: Number(c.id),
           clipId: Number(c.clipId),

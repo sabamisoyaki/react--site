@@ -117,8 +117,43 @@ export function update(
     url?: string;
     epnum?: string | null;
   },
+  db: Prisma.TransactionClient = prisma,
 ) {
-  return prisma.clip.update({ where: { id }, data });
+  return db.clip.update({ where: { id }, data });
+}
+
+export async function lockActiveById(id: number, db: Prisma.TransactionClient) {
+  const rows = await db.$queryRaw<
+    Array<{ id: bigint; userId: bigint; startMs: number; endMs: number }>
+  >`
+    SELECT
+      id,
+      user_id AS "userId",
+      start_ms AS "startMs",
+      end_ms AS "endMs"
+    FROM clips
+    WHERE id = ${BigInt(id)}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  `;
+
+  return rows[0] ?? null;
+}
+
+export function countActiveAnchorsOutsideRange(
+  clipId: number,
+  startMs: number,
+  endMs: number,
+  db: Prisma.TransactionClient,
+) {
+  return db.clipComment.count({
+    where: {
+      clipId: BigInt(clipId),
+      deletedAt: null,
+      atMs: { not: null },
+      OR: [{ atMs: { lt: startMs } }, { atMs: { gt: endMs } }],
+    },
+  });
 }
 
 export function softDelete(id: number) {

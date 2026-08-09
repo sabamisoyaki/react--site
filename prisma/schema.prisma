@@ -38,8 +38,9 @@ model User {
   usersVods         UserVod[]
   linkedExtensions  LinkedExtension[]
   extensionLinkTokens ExtensionLinkToken[]
-  clipComments      ClipComment[]
-  clipCommentReports ClipCommentReport[]
+  clipComments               ClipComment[]
+  clipCommentReports         ClipCommentReport[] @relation("ClipCommentReportReporter")
+  resolvedClipCommentReports ClipCommentReport[] @relation("ClipCommentReportResolver")
 
   /// @@partialUnique([email])
   @@map("users")
@@ -105,10 +106,11 @@ model Clip {
 }
 
 model ClipComment {
-  id        BigInt    @id @default(autoincrement()) @db.BigInt
-  clipId    BigInt    @map("clip_id") @db.BigInt
-  userId    BigInt    @map("user_id") @db.BigInt
-  body      String    @db.VarChar(500)
+  id              BigInt  @id @default(autoincrement()) @db.BigInt
+  clipId          BigInt  @map("clip_id") @db.BigInt
+  userId          BigInt  @map("user_id") @db.BigInt
+  body            String  @db.VarChar(500)
+  clientRequestId String? @map("client_request_id") @db.Uuid
   /// 時刻アンカー。clips.start_ms / end_ms と同じ「動画内の位置」座標系で、
   /// null は「クリップ全体へのコメント」を意味する。
   atMs      Int?      @map("at_ms")
@@ -121,6 +123,8 @@ model ClipComment {
 
   reports ClipCommentReport[]
 
+  @@unique([userId, clientRequestId])
+  @@index([userId, createdAt])
   /// @@partialIndex([clipId, id])
   @@map("clip_comments")
 }
@@ -128,20 +132,25 @@ model ClipComment {
 /// コメントの通報。このアプリに管理者ロールが無いため、通報の宛先は
 /// 「そのコメントが付いているクリップの所有者」= 既に削除権限を持つ人。
 model ClipCommentReport {
-  id         BigInt   @id @default(autoincrement()) @db.BigInt
-  commentId  BigInt   @map("comment_id") @db.BigInt
-  reporterId BigInt   @map("reporter_id") @db.BigInt
-  reason     String   @db.VarChar(32)
-  note       String?  @db.VarChar(500)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id           BigInt    @id @default(autoincrement()) @db.BigInt
+  commentId    BigInt    @map("comment_id") @db.BigInt
+  reporterId   BigInt    @map("reporter_id") @db.BigInt
+  reason       String    @db.VarChar(32)
+  note         String?   @db.VarChar(500)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt   DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedById BigInt?   @map("resolved_by_id") @db.BigInt
+  resolution   String?   @db.VarChar(32)
 
-  comment  ClipComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  reporter User        @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  comment    ClipComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reporter   User        @relation("ClipCommentReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolvedBy User?       @relation("ClipCommentReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
 
   // 同じ人が同じコメントを何度も通報できないようにする。
   // 論理削除を持たないモデルなので素の @@unique でよい。
   @@unique([commentId, reporterId])
   @@index([commentId])
+  @@index([resolvedById])
   @@map("clip_comment_reports")
 }
 

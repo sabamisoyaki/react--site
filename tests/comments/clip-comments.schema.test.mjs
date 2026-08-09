@@ -1,6 +1,7 @@
 // biome-ignore-all lint/security/noSecrets: Schema names and Japanese fixtures are false positives.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 // tsconfig paths を解決するため tsx 経由で読み込む（test:comments を参照）
@@ -12,6 +13,8 @@ const {
   clipCommentListQuerySchema,
   clipCommentParamSchema,
   clipCommentReportCreateBodySchema,
+  clipCommentReportListQuerySchema,
+  clipCommentReportsResolveBodySchema,
 } = await import("../../src/server/schemas/comments.schema.ts");
 const { extensionCommentCreateBodySchema } = await import(
   "../../src/server/schemas/extension.schema.ts"
@@ -78,6 +81,20 @@ test("clipCommentCreateBodySchema", async (t) => {
     assert.equal(schema.safeParse({ body: "x", atMs: -1 }).success, false);
     assert.equal(schema.safeParse({ body: "x", atMs: 1.5 }).success, false);
     assert.equal(schema.safeParse({ body: "x", atMs: "10" }).success, false);
+  });
+
+  await t.test("clientRequestId は任意の UUID", () => {
+    assert.equal(
+      schema.safeParse({
+        body: "x",
+        clientRequestId: "550e8400-e29b-41d4-a716-446655440000",
+      }).success,
+      true,
+    );
+    assert.equal(
+      schema.safeParse({ body: "x", clientRequestId: "retry-1" }).success,
+      false,
+    );
   });
 
   await t.test("extensionInstanceId is not accepted here", () => {
@@ -182,6 +199,10 @@ test("clipCommentParamSchema coerces the path segment", async (t) => {
       clipCommentParamSchema.safeParse({ clipId: "abc" }).success,
       false,
     );
+    assert.equal(
+      clipCommentParamSchema.safeParse({ clipId: "9007199254740992" }).success,
+      false,
+    );
   });
 });
 
@@ -271,6 +292,22 @@ test("clipCommentReportCreateBodySchema", async (t) => {
   });
 });
 
+test("clip comment report list and resolve schemas", () => {
+  const list = clipCommentReportListQuerySchema.safeParse({ limit: "100" });
+  assert.equal(list.success, true);
+  assert.equal(list.data.limit, 100);
+  assert.equal(
+    clipCommentReportsResolveBodySchema.safeParse({ resolution: "dismissed" })
+      .success,
+    true,
+  );
+  assert.equal(
+    clipCommentReportsResolveBodySchema.safeParse({ resolution: "deleted" })
+      .success,
+    false,
+  );
+});
+
 test("comment cursor round-trip keeps the id the service filters on", async (t) => {
   await t.test("id survives encode/decode", () => {
     const createdAt = new Date("2026-08-06T01:23:45.000Z");
@@ -281,10 +318,34 @@ test("comment cursor round-trip keeps the id the service filters on", async (t) 
 
   await t.test("malformed cursor is rejected", () => {
     assert.throws(() => decodeCursor("not-a-cursor"), /Invalid cursor/);
+    const malformedId = Buffer.from(
+      JSON.stringify({ c: new Date().toISOString(), i: "1oops", v: 1 }),
+    ).toString("base64url");
+    assert.throws(() => decodeCursor(malformedId), /Invalid cursor/);
   });
 
   await t.test("null and empty mean no cursor", () => {
     assert.equal(decodeCursor(null), null);
     assert.equal(decodeCursor(""), null);
   });
+});
+
+test("OpenAPI comment auth and extension auth match the implemented routes", () => {
+  const spec = readFileSync("openapi/v1.yaml", "utf8");
+  const sitePost = spec.slice(
+    spec.indexOf("operationId: clips.comments.create"),
+    spec.indexOf('"/clips/{clipId}/comments/{commentId}"'),
+  );
+  assert.match(sitePost, /nextAuthSession/);
+  assert.doesNotMatch(sitePost, /bearerAuth/);
+
+  const extensionPost = spec.slice(
+    spec.indexOf("operationId: extension.clips.comments.create"),
+    spec.indexOf("operationId: users.meGet"),
+  );
+  assert.match(extensionPost, /extensionBearerAuth/);
+  assert.doesNotMatch(
+    spec,
+    /ExtensionComment には含まれない（Phase 1 契約を維持するため）/,
+  );
 });

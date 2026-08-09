@@ -115,6 +115,24 @@ test("extensionCommentCreateBodySchema", async (t) => {
     assert.strictEqual(result.success, true);
   });
 
+  await t.test("clientRequestId は任意の UUID", () => {
+    const base = {
+      extensionInstanceId: "550e8400-e29b-41d4-a716-446655440000",
+      body: "comment",
+    };
+    assert.equal(
+      schema.safeParse({
+        ...base,
+        clientRequestId: "550e8400-e29b-41d4-a716-446655440001",
+      }).success,
+      true,
+    );
+    assert.equal(
+      schema.safeParse({ ...base, clientRequestId: "retry-1" }).success,
+      false,
+    );
+  });
+
   await t.test("body min boundary", () => {
     const result = schema.safeParse({
       extensionInstanceId: "550e8400-e29b-41d4-a716-446655440000",

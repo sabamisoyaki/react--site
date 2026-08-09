@@ -17,6 +17,9 @@ export const clipCommentCreateBodySchema = z
   .object({
     body: clipCommentBodySchema,
     atMs: clipCommentAtMsSchema,
+    // 通信再試行で同じコメントを二重作成しないための任意キー。
+    // 同じユーザー内で一意に扱う。
+    clientRequestId: z.uuid().optional(),
   })
   .strict();
 
@@ -43,10 +46,24 @@ export const clipCommentReportCreateBodySchema = z
   })
   .strict();
 
+export const clipCommentReportListQuerySchema = cursorPaginationQuerySchema;
+
+export const clipCommentReportsResolveBodySchema = z
+  .object({
+    resolution: z.literal("dismissed"),
+  })
+  .strict();
+
 export type ClipCommentListQuery = z.infer<typeof clipCommentListQuerySchema>;
 export type ClipCommentCreateBody = z.infer<typeof clipCommentCreateBodySchema>;
 export type ClipCommentParam = z.infer<typeof clipCommentParamSchema>;
 export type ClipCommentIdParam = z.infer<typeof clipCommentIdParamSchema>;
 export type ClipCommentReportCreateBody = z.infer<
   typeof clipCommentReportCreateBodySchema
+>;
+export type ClipCommentReportListQuery = z.infer<
+  typeof clipCommentReportListQuerySchema
+>;
+export type ClipCommentReportsResolveBody = z.infer<
+  typeof clipCommentReportsResolveBodySchema
 >;

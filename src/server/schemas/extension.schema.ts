@@ -81,6 +81,7 @@ export const extensionCommentCreateBodySchema = z
     // 拡張側は送信前に [startMs, endMs] へクランプする方針なので、
     // サーバー側の範囲検証は保険として残す（超過は 400 AT_MS_OUT_OF_RANGE）。
     atMs: clipCommentAtMsSchema,
+    clientRequestId: z.uuid().optional(),
   })
   .strict();
 

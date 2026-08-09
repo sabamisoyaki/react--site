@@ -72,6 +72,16 @@ export class ConflictError extends HttpError {
   }
 }
 
+export class TooManyRequestsError extends HttpError {
+  constructor(
+    message = "Too many requests",
+    code = "RATE_LIMITED",
+    details?: unknown,
+  ) {
+    super(429, message, code, details);
+  }
+}
+
 type ToErrorPayloadOptions = {
   exposeDetails?: boolean;
 };

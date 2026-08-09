@@ -6,22 +6,29 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  TooManyRequestsError,
+  UnauthorizedError,
 } from "@/server/http/errors";
 import { type CursorPayload, encodeCursor } from "@/server/http/pagination";
+import { lockActiveById } from "@/server/repositories/clips";
 import {
+  countRecentClipCommentsByUser,
   createClipComment,
   createClipCommentReport,
-  findClipCommentForModeration,
+  findClipCommentByClientRequestId,
   listClipCommentsByIdCursor,
   listReportedCommentsForClip,
+  lockActiveUser,
+  lockClipCommentForModeration,
+  resolveClipCommentReports,
   softDeleteClipComment,
 } from "@/server/repositories/comments";
 import { authenticateLinkedExtension } from "@/server/services/extensions";
 
 type CommentWithUsername = {
-  id: bigint;
-  clipId: bigint;
-  userId: bigint;
+  id: number;
+  clipId: number;
+  userId: number | null;
   username: string | null;
   body: string;
   atMs: number | null;
@@ -33,20 +40,89 @@ type CommentRow = Awaited<
 >["comments"][number];
 
 /**
- * 注意: この形をそのまま返すのは v1 だけ。拡張ルートは Phase 1 の契約に固定するため
- * 自前でフィールドを列挙して詰め替えている（atMs は拡張レスポンスに出さない）。
- * ここにフィールドを足しても拡張API の契約は変わらない、という前提で書いている。
+ * 拡張ルートは契約境界を固定するため、自前でフィールドを列挙して詰め替える。
+ * 退会済みユーザーは公開レスポンスで id / username を匿名化する。
  */
 function toCommentView(row: CommentRow): CommentWithUsername {
+  const userIsDeleted = row.user.deletedAt != null;
   return {
-    id: row.id,
-    clipId: row.clipId,
-    userId: row.userId,
-    username: row.user.name,
+    id: toSafeId(row.id, "comment.id"),
+    clipId: toSafeId(row.clipId, "comment.clipId"),
+    userId: userIsDeleted ? null : toSafeId(row.userId, "comment.userId"),
+    username: userIsDeleted ? null : row.user.name,
     body: row.body,
     atMs: row.atMs,
     createdAt: row.createdAt,
   };
+}
+
+function toSafeId(value: bigint, field: string) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number <= 0) {
+    throw new RangeError(`${field} exceeds the JSON safe-integer contract`);
+  }
+  return number;
+}
+
+const COMMENT_RATE_LIMIT_PER_MINUTE = 30;
+
+async function createCommentWithPolicies(
+  tx: Prisma.TransactionClient,
+  userId: number,
+  clipId: number,
+  body: string,
+  atMs?: number | null,
+  clientRequestId?: string,
+) {
+  // 同一ユーザーの同時投稿を直列化して、レート上限を並行リクエストで抜けられないようにする。
+  const activeUser = await lockActiveUser(userId, tx);
+  if (!activeUser) throw new UnauthorizedError();
+
+  if (clientRequestId) {
+    const existing = await findClipCommentByClientRequestId(
+      userId,
+      clientRequestId,
+      tx,
+    );
+    if (existing) {
+      if (
+        existing.deletedAt != null ||
+        String(existing.clipId) !== String(clipId) ||
+        existing.body !== body ||
+        existing.atMs !== (atMs ?? null)
+      ) {
+        throw new ConflictError(
+          "Idempotency key was already used for a different comment",
+          "IDEMPOTENCY_KEY_REUSED",
+        );
+      }
+      return existing;
+    }
+  }
+
+  // クリップ更新と同じ行ロックを取り、範囲検証から INSERT まで区間を固定する。
+  const clip = await lockActiveById(clipId, tx);
+  if (!clip) throw new NotFoundError("Clip not found");
+  assertAtMsInClipRange(atMs, clip);
+
+  const since = new Date(Date.now() - 60_000);
+  const recentCount = await countRecentClipCommentsByUser(userId, since, tx);
+  if (recentCount >= COMMENT_RATE_LIMIT_PER_MINUTE) {
+    throw new TooManyRequestsError(
+      "Comment rate limit exceeded",
+      "COMMENT_RATE_LIMITED",
+      { limit: COMMENT_RATE_LIMIT_PER_MINUTE, windowSeconds: 60 },
+    );
+  }
+
+  return createClipComment(
+    clipId,
+    userId,
+    body,
+    atMs ?? null,
+    clientRequestId,
+    tx,
+  );
 }
 
 /**
@@ -102,7 +178,7 @@ export async function listExtensionClipComments(
     clipId,
     comments: comments.map(toCommentView),
     hasNext,
-    nextCursor,
+    nextCursor: nextCursor ? toSafeId(nextCursor, "comment.nextCursor") : null,
   };
 }
 
@@ -112,30 +188,34 @@ export async function createExtensionClipComment(
   clipId: number,
   body: string,
   atMs?: number | null,
+  clientRequestId?: string,
 ) {
   const linkedExtension = await authenticateLinkedExtension(
     extensionInstanceId,
     token,
   );
-  const clip = await assertClipIsActive(clipId);
-  assertAtMsInClipRange(atMs, clip);
-
   const now = new Date();
 
   const comment = await prisma.$transaction(async (tx) => {
-    const created = await createClipComment(
-      clipId,
-      linkedExtension.userId,
-      body,
-      atMs ?? null,
+    const created = await createCommentWithPolicies(
       tx,
+      linkedExtension.userId,
+      clipId,
+      body,
+      atMs,
+      clientRequestId,
     );
 
-    await tx.$executeRaw`
+    const updated = await tx.$queryRaw<Array<{ id: bigint }>>`
       UPDATE linked_extensions
       SET last_seen_at = ${now}
       WHERE id = ${linkedExtension.id}
+        AND extension_auth_hash = ${linkedExtension.extensionAuthHash}
+        AND revoked_at IS NULL
+        AND expires_at > ${now}
+      RETURNING id
     `;
+    if (updated.length !== 1) throw new UnauthorizedError("Unauthorized");
 
     return created;
   });
@@ -152,6 +232,9 @@ export async function createExtensionClipComment(
 function decodeCommentCursorId(cursor?: CursorPayload | null) {
   if (!cursor) return undefined;
 
+  if (!/^\d+$/.test(cursor.i)) {
+    throw new BadRequestError("Invalid cursor", "INVALID_CURSOR");
+  }
   const id = Number.parseInt(cursor.i, 10);
   if (!Number.isSafeInteger(id) || id <= 0) {
     throw new BadRequestError("Invalid cursor", "INVALID_CURSOR");
@@ -185,12 +268,11 @@ export async function createClipCommentAsUser(
   clipId: number,
   body: string,
   atMs?: number | null,
+  clientRequestId?: string,
 ) {
-  const clip = await assertClipIsActive(clipId);
-  assertAtMsInClipRange(atMs, clip);
-
-  // 拡張経路と違い last_seen_at の更新が無いため、トランザクションは不要。
-  const comment = await createClipComment(clipId, userId, body, atMs ?? null);
+  const comment = await prisma.$transaction((tx) =>
+    createCommentWithPolicies(tx, userId, clipId, body, atMs, clientRequestId),
+  );
 
   return toCommentView(comment);
 }
@@ -204,25 +286,17 @@ export async function deleteClipComment(
   clipId: number,
   commentId: number,
 ) {
-  await assertClipIsActive(clipId);
+  await prisma.$transaction(async (tx) => {
+    const comment = await lockClipCommentForModeration(clipId, commentId, tx);
+    if (!comment) throw new NotFoundError("Comment not found");
 
-  const comment = await findClipCommentForModeration(clipId, commentId);
-  if (!comment) {
-    throw new NotFoundError("Comment not found");
-  }
+    const isAuthor = String(comment.userId) === String(userId);
+    const isClipOwner = String(comment.clipOwnerId) === String(userId);
+    if (!isAuthor && !isClipOwner) throw new ForbiddenError();
 
-  // id は BigInt なので String 経由で比較する（clips サービスと同じ流儀）
-  const isAuthor = String(comment.userId) === String(userId);
-  const isClipOwner = String(comment.clip.userId) === String(userId);
-  if (!isAuthor && !isClipOwner) {
-    throw new ForbiddenError();
-  }
-
-  const result = await softDeleteClipComment(commentId);
-  if (result.count === 0) {
-    // 権限判定と更新の間に他方が消したケース
-    throw new NotFoundError("Comment not found");
-  }
+    const result = await softDeleteClipComment(commentId, tx);
+    if (result.count === 0) throw new NotFoundError("Comment not found");
+  });
 }
 
 /**
@@ -235,29 +309,31 @@ export async function reportClipComment(
   commentId: number,
   input: { reason: string; note?: string | null },
 ) {
-  await assertClipIsActive(clipId);
-
-  const comment = await findClipCommentForModeration(clipId, commentId);
-  if (!comment) {
-    throw new NotFoundError("Comment not found");
-  }
-
-  if (String(comment.userId) === String(userId)) {
-    throw new BadRequestError(
-      "Cannot report your own comment",
-      "CANNOT_REPORT_OWN_COMMENT",
-    );
-  }
-
   try {
-    const report = await createClipCommentReport(
-      commentId,
-      userId,
-      input.reason,
-      input.note?.trim() ? input.note.trim() : null,
-    );
+    const report = await prisma.$transaction(async (tx) => {
+      const comment = await lockClipCommentForModeration(clipId, commentId, tx);
+      if (!comment) throw new NotFoundError("Comment not found");
 
-    return { id: report.id, commentId: report.commentId };
+      if (String(comment.userId) === String(userId)) {
+        throw new BadRequestError(
+          "Cannot report your own comment",
+          "CANNOT_REPORT_OWN_COMMENT",
+        );
+      }
+
+      return createClipCommentReport(
+        commentId,
+        userId,
+        input.reason,
+        input.note?.trim() ? input.note.trim() : null,
+        tx,
+      );
+    });
+
+    return {
+      id: toSafeId(report.id, "report.id"),
+      commentId: toSafeId(report.commentId, "report.commentId"),
+    };
   } catch (error) {
     // (comment_id, reporter_id) の一意制約
     if (
@@ -274,7 +350,11 @@ export async function reportClipComment(
  * 通報の宛先はクリップ所有者。管理者ロールが無いので、
  * 横断的に通報を見られる人はこのアプリには存在しない。
  */
-export async function listClipCommentReports(userId: number, clipId: number) {
+export async function listClipCommentReports(
+  userId: number,
+  clipId: number,
+  opts: { cursor?: CursorPayload | null; limit?: number } = {},
+) {
   const clip = await prisma.clip.findFirst({
     where: { id: BigInt(clipId), deletedAt: null },
     select: { userId: true },
@@ -288,11 +368,50 @@ export async function listClipCommentReports(userId: number, clipId: number) {
     throw new ForbiddenError();
   }
 
-  const rows = await listReportedCommentsForClip(clipId);
+  const { rows, hasNext } = await listReportedCommentsForClip(clipId, {
+    cursor: decodeCommentCursorId(opts.cursor),
+    limit: opts.limit,
+  });
+  const last = rows.at(-1);
 
-  return rows.map((row) => ({
-    comment: toCommentView(row.comment),
-    reportCount: row.reportCount,
-    lastReportedAt: row.lastReportedAt,
-  }));
+  return {
+    data: rows.map((row) => ({
+      comment: toCommentView(row.comment),
+      reportCount: row.reportCount,
+      lastReportedAt: row.lastReportedAt,
+      recentReports: row.recentReports,
+    })),
+    hasNext,
+    nextCursor:
+      hasNext && last
+        ? encodeCursor(
+            last.lastReportedAt ?? last.comment.createdAt,
+            last.comment.id,
+          )
+        : null,
+  };
+}
+
+export async function resolveClipCommentReportsAsOwner(
+  userId: number,
+  clipId: number,
+  commentId: number,
+  resolution: "dismissed",
+) {
+  await prisma.$transaction(async (tx) => {
+    const comment = await lockClipCommentForModeration(clipId, commentId, tx);
+    if (!comment) throw new NotFoundError("Comment not found");
+    if (String(comment.clipOwnerId) !== String(userId))
+      throw new ForbiddenError();
+
+    const result = await resolveClipCommentReports(
+      commentId,
+      userId,
+      resolution,
+      tx,
+    );
+    if (result.count === 0) {
+      throw new NotFoundError("Unresolved reports not found");
+    }
+  });
 }

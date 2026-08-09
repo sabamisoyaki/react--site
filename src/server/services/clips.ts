@@ -1,4 +1,11 @@
-import { ForbiddenError, NotFoundError } from "@/server/http/errors";
+import { prisma } from "@/server/db";
+import { resolveClipRange } from "@/server/domain/clips";
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "@/server/http/errors";
 import * as repo from "@/server/repositories/clips";
 
 export function listClips(opts: Parameters<typeof repo.list>[0]) {
@@ -33,9 +40,39 @@ export async function updateClip(
   id: number,
   data: Parameters<typeof repo.update>[1],
 ) {
-  const clip = await getClip(id);
-  if (String(clip.userId) !== String(currentUserId)) throw new ForbiddenError();
-  return repo.update(id, data);
+  return prisma.$transaction(async (tx) => {
+    // コメント作成と同じ行ロックを取り、区間確認後にアンカーが追加される競合を防ぐ。
+    const clip = await repo.lockActiveById(id, tx);
+    if (!clip) throw new NotFoundError("Clip not found");
+    if (String(clip.userId) !== String(currentUserId))
+      throw new ForbiddenError();
+
+    const range = resolveClipRange(clip, data);
+    if (!range) {
+      throw new BadRequestError(
+        "endMs must be greater than startMs",
+        "INVALID_CLIP_RANGE",
+      );
+    }
+
+    if (data.startMs !== undefined || data.endMs !== undefined) {
+      const outsideCount = await repo.countActiveAnchorsOutsideRange(
+        id,
+        range.startMs,
+        range.endMs,
+        tx,
+      );
+      if (outsideCount > 0) {
+        throw new ConflictError(
+          "Clip range would exclude existing comment anchors",
+          "COMMENT_ANCHOR_CONFLICT",
+          { outsideCount },
+        );
+      }
+    }
+
+    return repo.update(id, data, tx);
+  });
 }
 
 export async function deleteClip(

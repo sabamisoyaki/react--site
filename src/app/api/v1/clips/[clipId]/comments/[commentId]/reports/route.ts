@@ -5,10 +5,14 @@ import { parseJsonBody, parseRouteParams } from "@/server/http/validation";
 import {
   clipCommentIdParamSchema,
   clipCommentReportCreateBodySchema,
+  clipCommentReportsResolveBodySchema,
 } from "@/server/schemas/comments.schema";
-import { reportClipComment } from "@/server/services/comments";
+import {
+  reportClipComment,
+  resolveClipCommentReportsAsOwner,
+} from "@/server/services/comments";
 
-export const { POST } = createRouteHandlers({
+export const { POST, PATCH } = createRouteHandlers({
   // 通報の宛先はクリップ所有者（このアプリに管理者ロールは無い）。
   POST: async (req, context) => {
     const userId = await requireUserId();
@@ -22,5 +26,17 @@ export const { POST } = createRouteHandlers({
     );
 
     return json(report, { status: 201 });
+  },
+  PATCH: async (req, context) => {
+    const userId = await requireUserId();
+    const params = parseRouteParams(context.params, clipCommentIdParamSchema);
+    const body = await parseJsonBody(req, clipCommentReportsResolveBodySchema);
+    await resolveClipCommentReportsAsOwner(
+      userId,
+      params.clipId,
+      params.commentId,
+      body.resolution,
+    );
+    return new Response(null, { status: 204 });
   },
 });

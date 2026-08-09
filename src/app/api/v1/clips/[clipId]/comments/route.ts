@@ -49,6 +49,7 @@ export const { GET, POST } = createRouteHandlers({
       params.clipId,
       body.body,
       body.atMs,
+      body.clientRequestId,
     );
 
     return json(comment, { status: 201 });

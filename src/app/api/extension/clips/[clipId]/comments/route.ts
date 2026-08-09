@@ -77,17 +77,16 @@ export async function GET(
         // atMs は 2026-08-06 に拡張リポと合意して追加した（常に存在し、
         // 値が無いときは null）。
         comments: result.comments.map((c) => ({
-          id: Number(c.id),
-          clipId: Number(c.clipId),
-          userId: Number(c.userId),
+          id: c.id,
+          clipId: c.clipId,
+          userId: c.userId,
           username: c.username,
           body: c.body,
           atMs: c.atMs,
           createdAt: c.createdAt.toISOString(),
         })),
         hasNext: result.hasNext,
-        nextCursor:
-          result.nextCursor != null ? Number(result.nextCursor) : null,
+        nextCursor: result.nextCursor,
       },
       { headers },
     );
@@ -140,6 +139,7 @@ export async function POST(
       clipId,
       body.body,
       body.atMs,
+      body.clientRequestId,
     );
 
     return json(
@@ -147,9 +147,9 @@ export async function POST(
         ok: true,
         // GET と同じ理由でフィールドを明示列挙する（上のコメント参照）
         comment: {
-          id: Number(result.comment.id),
-          clipId: Number(result.comment.clipId),
-          userId: Number(result.comment.userId),
+          id: result.comment.id,
+          clipId: result.comment.clipId,
+          userId: result.comment.userId,
           username: result.comment.username,
           body: result.comment.body,
           atMs: result.comment.atMs,

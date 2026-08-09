@@ -254,6 +254,24 @@ try {
         ]),
       Object.keys(r.json),
     );
+
+    const clientRequestId = crypto.randomUUID();
+    const idempotentBody = JSON.stringify({
+      body: "再試行されるコメント",
+      clientRequestId,
+    });
+    const first = await req(`/api/v1/clips/${clipId}/comments`, {
+      method: "POST",
+      cookie: authCookie,
+      body: idempotentBody,
+    });
+    const retry = await req(`/api/v1/clips/${clipId}/comments`, {
+      method: "POST",
+      cookie: authCookie,
+      body: idempotentBody,
+    });
+    eq("冪等な再試行は同じコメントを返す", retry.json.id, first.json.id);
+    if (first.json?.id) createdCommentIds.push(BigInt(first.json.id));
   }
 
   // ---- POST: バリデーション -----------------------------------------------
@@ -743,14 +761,36 @@ try {
       const row = list.json.data.find((r: any) => r.comment.id === target);
       check("通報されたコメントが載る", !!row, list.json.data);
       eq("件数が入る", row?.reportCount, 1);
+      eq("通報理由が所有者へ届く", row?.recentReports?.[0]?.reason, "spoiler");
+      eq("通報補足が所有者へ届く", row?.recentReports?.[0]?.note, "ネタバレ");
       check(
         "ReportedClipComment のキーが OpenAPI どおり",
         JSON.stringify(Object.keys(row ?? {}).sort()) ===
-          JSON.stringify(["comment", "lastReportedAt", "reportCount"]),
+          JSON.stringify([
+            "comment",
+            "lastReportedAt",
+            "recentReports",
+            "reportCount",
+          ]),
         Object.keys(row ?? {}),
       );
 
-      // 論理削除したコメントの通報は一覧から落ちる
+      const resolved = await req(
+        `/api/v1/clips/${clipId}/comments/${target}/reports`,
+        {
+          method: "PATCH",
+          cookie: ownerCookie,
+          body: JSON.stringify({ resolution: "dismissed" }),
+        },
+      );
+      eq("所有者は通報を問題なしとして解決できる", resolved.status, 204);
+      const storedResolution = await prisma.clipCommentReport.findFirstOrThrow({
+        where: { commentId: targetRow.id },
+        select: { resolution: true, resolvedAt: true },
+      });
+      eq("解決理由が保存される", storedResolution.resolution, "dismissed");
+      check("解決日時が保存される", storedResolution.resolvedAt != null);
+
       await req(`/api/v1/clips/${clipId}/comments/${target}`, {
         method: "DELETE",
         cookie: ownerCookie,
@@ -759,7 +799,7 @@ try {
         cookie: ownerCookie,
       });
       check(
-        "削除済みコメントの通報は一覧に出ない",
+        "解決済み・削除済みコメントの通報は一覧に出ない",
         !after.json.data.some((r: any) => r.comment.id === target),
         after.json.data.map((r: any) => r.comment.id),
       );

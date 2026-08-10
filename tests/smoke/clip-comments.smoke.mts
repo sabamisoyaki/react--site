@@ -56,34 +56,69 @@ async function req(path: string, init: RequestInit & { cookie?: string } = {}) {
   return { status: res.status, json };
 }
 
+async function cleanupStep(label: string, operation: () => Promise<void>) {
+  try {
+    await operation();
+  } catch (error) {
+    fail++;
+    const message = `${label}: ${(error as Error).message}`;
+    failures.push(message);
+    console.error(`  後始末失敗 ${message}`);
+  }
+}
+
 // ---- fixtures -------------------------------------------------------------
 const createdCommentIds: bigint[] = [];
 let deletedClipId: number | null = null;
-let createdUserId: bigint | null = null;
+let fixtureClipId: bigint | null = null;
+const createdUserIds: bigint[] = [];
 let ownerUserId: number;
 let otherUserId: number;
 let clipId: number;
 
 try {
-  const users = await prisma.user.findMany({
+  const vod = await prisma.vod.findFirstOrThrow({
     where: { deletedAt: null },
+    select: { id: true },
+    orderBy: { id: "asc" },
+  });
+  const owner = await prisma.user.create({
+    data: {
+      name: "smoke-comment-owner",
+      email: `smoke-comment-owner-${Date.now()}-${crypto.randomUUID()}@example.invalid`,
+    },
     select: { id: true, name: true, email: true },
-    orderBy: { id: "asc" },
-    take: 3, // 3人目は「投稿者でもクリップ所有者でもない第三者」の 403 確認に使う
   });
-  if (users.length < 2) throw new Error("need at least 2 active users");
+  createdUserIds.push(owner.id);
 
-  const clip = await prisma.clip.findFirst({
-    where: { deletedAt: null },
-    select: { id: true, userId: true },
-    orderBy: { id: "asc" },
+  const poster = await prisma.user.create({
+    data: {
+      name: "smoke-comment-poster",
+      email: `smoke-comment-poster-${Date.now()}-${crypto.randomUUID()}@example.invalid`,
+    },
+    select: { id: true, name: true, email: true },
   });
-  if (!clip) throw new Error("need at least 1 active clip");
+  createdUserIds.push(poster.id);
+  console.log(`  (投稿者ユーザーを一時作成: ${poster.id})`);
+
+  const clipRow = await prisma.clip.create({
+    data: {
+      userId: owner.id,
+      vodId: vod.id,
+      name: `コメントAPIスモーク ${crypto.randomUUID()}`,
+      title: "Clip comment smoke fixture",
+      startMs: 1_000,
+      endMs: 60_000,
+      url: "https://www.netflix.com/watch/1",
+    },
+    select: { id: true, userId: true },
+  });
+  fixtureClipId = clipRow.id;
+  const clip = { ...clipRow, user: owner };
+  const users = [owner, poster];
 
   clipId = Number(clip.id);
   // クリップ所有者ではないユーザーを投稿者にする（他人のクリップに投稿できる契約の確認）
-  const poster =
-    users.find((u) => String(u.id) !== String(clip.userId)) ?? users[0];
   ownerUserId = Number(clip.userId);
   otherUserId = Number(poster.id);
 
@@ -98,12 +133,23 @@ try {
     salt: COOKIE_NAME,
   });
   const authCookie = `${COOKIE_NAME}=${cookieValue}`;
+  const ownerCookieValue = await encode({
+    token: {
+      uid: String(clip.user.id),
+      sub: String(clip.user.id),
+      name: clip.user.name,
+      email: clip.user.email,
+    },
+    secret: authSecret,
+    salt: COOKIE_NAME,
+  });
+  const ownerCookie = `${COOKIE_NAME}=${ownerCookieValue}`;
 
   // 論理削除済みクリップを1件作る（後で物理削除）
   const softDeleted = await prisma.clip.create({
     data: {
       userId: BigInt(otherUserId),
-      vodId: (await prisma.vod.findFirstOrThrow({ select: { id: true } })).id,
+      vodId: vod.id,
       name: "smoke-deleted-clip",
       title: "smoke",
       startMs: 0,
@@ -270,8 +316,38 @@ try {
       cookie: authCookie,
       body: idempotentBody,
     });
+    eq("冪等な初回投稿は 201", first.status, 201);
+    eq("冪等な再試行も 201", retry.status, 201);
+    check(
+      "冪等な投稿は正の safe integer id を返す",
+      Number.isSafeInteger(first.json.id) && first.json.id > 0,
+      first.json,
+    );
     eq("冪等な再試行は同じコメントを返す", retry.json.id, first.json.id);
-    if (first.json?.id) createdCommentIds.push(BigInt(first.json.id));
+    const idempotentCount = await prisma.clipComment.count({
+      where: {
+        userId: BigInt(otherUserId),
+        clientRequestId,
+      },
+    });
+    eq("冪等な再試行後も DB は1件だけ", idempotentCount, 1);
+
+    const mismatched = await req(`/api/v1/clips/${clipId}/comments`, {
+      method: "POST",
+      cookie: authCookie,
+      body: JSON.stringify({
+        body: "別の本文",
+        clientRequestId,
+      }),
+    });
+    eq("同じ冪等キーの異なるpayloadは 409", mismatched.status, 409);
+    eq(
+      "異なるpayloadのエラーコード",
+      mismatched.json.code,
+      "IDEMPOTENCY_KEY_REUSED",
+    );
+    if (Number.isSafeInteger(first.json.id) && first.json.id > 0)
+      createdCommentIds.push(BigInt(first.json.id));
   }
 
   // ---- POST: バリデーション -----------------------------------------------
@@ -327,6 +403,32 @@ try {
           body: JSON.stringify({ body: "x" }),
         })
       ).status,
+      404,
+    );
+
+    const deletedClipRequestId = crypto.randomUUID();
+    await prisma.clipComment.create({
+      data: {
+        clipId: BigInt(deletedClipId),
+        userId: BigInt(otherUserId),
+        body: "削除クリップの既存冪等コメント",
+        clientRequestId: deletedClipRequestId,
+      },
+    });
+    const deletedClipReplay = await req(
+      `/api/v1/clips/${deletedClipId}/comments`,
+      {
+        method: "POST",
+        cookie: authCookie,
+        body: JSON.stringify({
+          body: "削除クリップの既存冪等コメント",
+          clientRequestId: deletedClipRequestId,
+        }),
+      },
+    );
+    eq(
+      "既存冪等行があっても論理削除クリップは 404",
+      deletedClipReplay.status,
       404,
     );
   }
@@ -515,21 +617,6 @@ try {
   // ---- DELETE -------------------------------------------------------------
   console.log("\nDELETE 権限");
   {
-    // クリップ所有者のセッションも用意する（モデレーション確認用）
-    const owner = users.find((u) => String(u.id) === String(clip.userId));
-    const ownerCookie = owner
-      ? `${COOKIE_NAME}=${await encode({
-          token: {
-            uid: String(owner.id),
-            sub: String(owner.id),
-            name: owner.name,
-            email: owner.email,
-          },
-          secret: authSecret,
-          salt: COOKIE_NAME,
-        })}`
-      : null;
-
     const post = async (body: string) => {
       const r = await req(`/api/v1/clips/${clipId}/comments`, {
         method: "POST",
@@ -600,16 +687,12 @@ try {
       stillThere,
     );
 
-    if (ownerCookie) {
-      const byOther = await post("所有者が消すコメント");
-      eq(
-        "クリップ所有者は他人のコメントを消せる（モデレーション）",
-        (await del(byOther, ownerCookie)).status,
-        204,
-      );
-    } else {
-      console.log("  - 所有者セッションを作れずモデレーション確認はスキップ");
-    }
+    const byOther = await post("所有者が消すコメント");
+    eq(
+      "クリップ所有者は他人のコメントを消せる（モデレーション）",
+      (await del(byOther, ownerCookie)).status,
+      204,
+    );
 
     // 第三者（投稿者でもクリップ所有者でもない）は 403。
     // 権限境界の要なので、居なければ作ってでも検証する（finally で消す）。
@@ -626,7 +709,7 @@ try {
         },
         select: { id: true, name: true, email: true },
       });
-      createdUserId = created.id;
+      createdUserIds.push(created.id);
       third = created;
       console.log(`  (第三者ユーザーを一時作成: ${created.id})`);
     }
@@ -650,20 +733,6 @@ try {
   // ---- 通報 ---------------------------------------------------------------
   console.log("\n通報");
   {
-    const ownerUser = users.find((u) => String(u.id) === String(clip.userId));
-    const ownerCookie = ownerUser
-      ? `${COOKIE_NAME}=${await encode({
-          token: {
-            uid: String(ownerUser.id),
-            sub: String(ownerUser.id),
-            name: ownerUser.name,
-            email: ownerUser.email,
-          },
-          secret: authSecret,
-          salt: COOKIE_NAME,
-        })}`
-      : null;
-
     // 通報対象は「自分以外」のコメントが要る。クリップ所有者名義で1件作る。
     const targetRow = await prisma.clipComment.create({
       data: {
@@ -711,19 +780,19 @@ try {
     eq("reason が保存される", stored.reason, "spoiler");
     eq("note が trim される", stored.note, "ネタバレ");
 
+    const duplicateReport = await rep({ reason: "spam" }, authCookie);
+    eq("同じ人の二重通報は 409", duplicateReport.status, 409);
     eq(
-      "同じ人の二重通報は 409",
-      (await rep({ reason: "spam" }, authCookie)).status,
-      409,
+      "二重通報は専用エラーコードを返す",
+      duplicateReport.json.code,
+      "ALREADY_REPORTED",
     );
 
-    if (ownerCookie) {
-      eq(
-        "自分のコメントは通報できない (400)",
-        (await rep({ reason: "spam" }, ownerCookie)).status,
-        400,
-      );
-    }
+    eq(
+      "自分のコメントは通報できない (400)",
+      (await rep({ reason: "spam" }, ownerCookie)).status,
+      400,
+    );
 
     eq(
       "存在しないコメントへの通報は 404",
@@ -753,57 +822,121 @@ try {
       403,
     );
 
-    if (ownerCookie) {
-      const list = await req(`/api/v1/clips/${clipId}/comment-reports`, {
-        cookie: ownerCookie,
-      });
-      eq("所有者は 200", list.status, 200);
-      const row = list.json.data.find((r: any) => r.comment.id === target);
-      check("通報されたコメントが載る", !!row, list.json.data);
-      eq("件数が入る", row?.reportCount, 1);
-      eq("通報理由が所有者へ届く", row?.recentReports?.[0]?.reason, "spoiler");
-      eq("通報補足が所有者へ届く", row?.recentReports?.[0]?.note, "ネタバレ");
-      check(
-        "ReportedClipComment のキーが OpenAPI どおり",
-        JSON.stringify(Object.keys(row ?? {}).sort()) ===
-          JSON.stringify([
-            "comment",
-            "lastReportedAt",
-            "recentReports",
-            "reportCount",
-          ]),
-        Object.keys(row ?? {}),
-      );
+    const list = await req(`/api/v1/clips/${clipId}/comment-reports`, {
+      cookie: ownerCookie,
+    });
+    eq("所有者は 200", list.status, 200);
+    const row = list.json.data.find((r: any) => r.comment.id === target);
+    check("通報されたコメントが載る", !!row, list.json.data);
+    eq("件数が入る", row?.reportCount, 1);
+    eq("通報理由が所有者へ届く", row?.recentReports?.[0]?.reason, "spoiler");
+    eq("通報補足が所有者へ届く", row?.recentReports?.[0]?.note, "ネタバレ");
+    check(
+      "ReportedClipComment のキーが OpenAPI どおり",
+      JSON.stringify(Object.keys(row ?? {}).sort()) ===
+        JSON.stringify([
+          "comment",
+          "lastReportedAt",
+          "recentReports",
+          "reportCount",
+        ]),
+      Object.keys(row ?? {}),
+    );
 
-      const resolved = await req(
-        `/api/v1/clips/${clipId}/comments/${target}/reports`,
-        {
-          method: "PATCH",
-          cookie: ownerCookie,
-          body: JSON.stringify({ resolution: "dismissed" }),
-        },
-      );
-      eq("所有者は通報を問題なしとして解決できる", resolved.status, 204);
-      const storedResolution = await prisma.clipCommentReport.findFirstOrThrow({
-        where: { commentId: targetRow.id },
-        select: { resolution: true, resolvedAt: true },
-      });
-      eq("解決理由が保存される", storedResolution.resolution, "dismissed");
-      check("解決日時が保存される", storedResolution.resolvedAt != null);
+    const resolved = await req(
+      `/api/v1/clips/${clipId}/comments/${target}/reports`,
+      {
+        method: "PATCH",
+        cookie: ownerCookie,
+        body: JSON.stringify({ resolution: "dismissed" }),
+      },
+    );
+    eq("所有者は通報を問題なしとして解決できる", resolved.status, 204);
+    const storedResolution = await prisma.clipCommentReport.findFirstOrThrow({
+      where: { commentId: targetRow.id },
+      select: { resolution: true, resolvedAt: true },
+    });
+    eq("解決理由が保存される", storedResolution.resolution, "dismissed");
+    check("解決日時が保存される", storedResolution.resolvedAt != null);
 
-      await req(`/api/v1/clips/${clipId}/comments/${target}`, {
-        method: "DELETE",
-        cookie: ownerCookie,
-      });
-      const after = await req(`/api/v1/clips/${clipId}/comment-reports`, {
-        cookie: ownerCookie,
-      });
-      check(
-        "解決済み・削除済みコメントの通報は一覧に出ない",
-        !after.json.data.some((r: any) => r.comment.id === target),
-        after.json.data.map((r: any) => r.comment.id),
-      );
-    }
+    await req(`/api/v1/clips/${clipId}/comments/${target}`, {
+      method: "DELETE",
+      cookie: ownerCookie,
+    });
+    const after = await req(`/api/v1/clips/${clipId}/comment-reports`, {
+      cookie: ownerCookie,
+    });
+    check(
+      "解決済み・削除済みコメントの通報は一覧に出ない",
+      !after.json.data.some((r: any) => r.comment.id === target),
+      after.json.data.map((r: any) => r.comment.id),
+    );
+
+    const deleteTargetRow = await prisma.clipComment.create({
+      data: {
+        clipId: BigInt(clipId),
+        userId: clip.userId,
+        body: "未解決通報付き削除対象",
+      },
+      select: { id: true },
+    });
+    createdCommentIds.push(deleteTargetRow.id);
+    const deleteTarget = Number(deleteTargetRow.id);
+    const unresolved = await req(
+      `/api/v1/clips/${clipId}/comments/${deleteTarget}/reports`,
+      {
+        method: "POST",
+        cookie: authCookie,
+        body: JSON.stringify({ reason: "spam" }),
+      },
+    );
+    eq("削除前に未解決通報を作成できる", unresolved.status, 201);
+
+    const deletedWithReport = await req(
+      `/api/v1/clips/${clipId}/comments/${deleteTarget}`,
+      { method: "DELETE", cookie: ownerCookie },
+    );
+    eq("未解決通報付きコメントも削除できる", deletedWithReport.status, 204);
+    const deletionResolution = await prisma.clipCommentReport.findFirstOrThrow({
+      where: { commentId: deleteTargetRow.id },
+      select: { resolution: true, resolvedAt: true },
+    });
+    eq(
+      "コメント削除で通報は comment_deleted になる",
+      deletionResolution.resolution,
+      "comment_deleted",
+    );
+    check(
+      "コメント削除で通報の解決日時が入る",
+      deletionResolution.resolvedAt != null,
+      deletionResolution,
+    );
+  }
+
+  // ---- 投稿レート制限 -----------------------------------------------------
+  console.log("\n投稿レート制限");
+  {
+    // 既存fixtureが60秒境界をまたいでも揺れないよう、freshな30件を必ず用意する。
+    await prisma.clipComment.createMany({
+      data: Array.from({ length: 30 }, (_, index) => ({
+        clipId: BigInt(clipId),
+        userId: BigInt(otherUserId),
+        body: `rate-limit-fixture-${index}`,
+        createdAt: new Date(),
+      })),
+    });
+
+    const limited = await req(`/api/v1/clips/${clipId}/comments`, {
+      method: "POST",
+      cookie: authCookie,
+      body: JSON.stringify({ body: "31件目" }),
+    });
+    eq("1分30件の次の投稿は 429", limited.status, 429);
+    eq(
+      "レート制限は専用エラーコードを返す",
+      limited.json.code,
+      "COMMENT_RATE_LIMITED",
+    );
   }
 } catch (e) {
   fail++;
@@ -813,24 +946,37 @@ try {
   // ---- 後始末 -------------------------------------------------------------
   console.log("\n後始末");
   if (createdCommentIds.length) {
-    const r = await prisma.clipComment.deleteMany({
-      where: { id: { in: createdCommentIds } },
+    await cleanupStep("作成コメントの物理削除", async () => {
+      const r = await prisma.clipComment.deleteMany({
+        where: { id: { in: createdCommentIds } },
+      });
+      console.log(`  投稿したコメントを物理削除: ${r.count} 件`);
     });
-    console.log(`  投稿したコメントを物理削除: ${r.count} 件`);
   }
   if (deletedClipId != null) {
-    await prisma.clipComment.deleteMany({
-      where: { clipId: BigInt(deletedClipId) },
+    const id = BigInt(deletedClipId);
+    await cleanupStep("論理削除クリップfixtureの物理削除", async () => {
+      await prisma.clipComment.deleteMany({ where: { clipId: id } });
+      await prisma.clip.delete({ where: { id } });
+      console.log(`  スモーク用クリップを物理削除: ${id}`);
     });
-    await prisma.clip.delete({ where: { id: BigInt(deletedClipId) } });
-    console.log(`  スモーク用クリップを物理削除: ${deletedClipId}`);
   }
-  if (createdUserId != null) {
-    await prisma.clipComment.deleteMany({ where: { userId: createdUserId } });
-    await prisma.user.delete({ where: { id: createdUserId } });
-    console.log(`  一時作成した第三者ユーザーを物理削除: ${createdUserId}`);
+  if (fixtureClipId != null) {
+    const id = fixtureClipId;
+    await cleanupStep("専用クリップfixtureの物理削除", async () => {
+      await prisma.clipComment.deleteMany({ where: { clipId: id } });
+      await prisma.clip.delete({ where: { id } });
+      console.log(`  専用クリップを物理削除: ${id}`);
+    });
   }
-  await prisma.$disconnect();
+  for (const createdUserId of createdUserIds) {
+    await cleanupStep("一時ユーザーfixtureの物理削除", async () => {
+      await prisma.clipComment.deleteMany({ where: { userId: createdUserId } });
+      await prisma.user.delete({ where: { id: createdUserId } });
+      console.log(`  一時作成したユーザーを物理削除: ${createdUserId}`);
+    });
+  }
+  await cleanupStep("Prisma切断", () => prisma.$disconnect());
 
   console.log(`\n==== ${pass} passed, ${fail} failed ====`);
   if (failures.length) {

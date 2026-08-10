@@ -48,6 +48,16 @@ test("clipCommentCreateBodySchema", async (t) => {
     assert.equal(schema.safeParse({ body: "   " }).success, false);
   });
 
+  await t.test(
+    "body containing NUL is rejected before reaching PostgreSQL",
+    () => {
+      assert.equal(
+        schema.safeParse({ body: "before\u0000after" }).success,
+        false,
+      );
+    },
+  );
+
   await t.test("newlines are preserved", () => {
     const result = schema.safeParse({ body: "一行目\n二行目" });
     assert.equal(result.success, true);
@@ -143,6 +153,18 @@ test("clip comment body rules are shared with the extension API", async (t) => {
       body: raw,
     });
     assert.equal(site.data, extension.data.body);
+  });
+
+  await t.test("both reject NUL", () => {
+    const value = "comment\u0000body";
+    assert.equal(clipCommentBodySchema.safeParse(value).success, false);
+    assert.equal(
+      extensionCommentCreateBodySchema.safeParse({
+        extensionInstanceId: uuid,
+        body: value,
+      }).success,
+      false,
+    );
   });
 });
 
@@ -284,6 +306,13 @@ test("clipCommentReportCreateBodySchema", async (t) => {
     );
   });
 
+  await t.test("note に NUL は使用できない", () => {
+    assert.equal(
+      schema.safeParse({ reason: "other", note: "before\u0000after" }).success,
+      false,
+    );
+  });
+
   await t.test(".strict() rejects unknown keys", () => {
     assert.equal(
       schema.safeParse({ reason: "spam", commentId: 1 }).success,
@@ -304,6 +333,12 @@ test("clip comment report list and resolve schemas", () => {
   assert.equal(
     clipCommentReportsResolveBodySchema.safeParse({ resolution: "deleted" })
       .success,
+    false,
+  );
+  assert.equal(
+    clipCommentReportsResolveBodySchema.safeParse({
+      resolution: "comment_deleted",
+    }).success,
     false,
   );
 });

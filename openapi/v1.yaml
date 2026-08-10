@@ -120,6 +120,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Request is not allowed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Conflict:
       description: Conflict / Unique constraint violation
       content:
@@ -603,6 +609,7 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: "^[^\\u0000]*$"
         atMs:
           type:
             - integer
@@ -668,7 +675,10 @@ components:
           type: string
           minLength: 1
           maxLength: 500
-          description: trim 後 1–500 文字。前後の空白は保存前に除去される。
+          pattern: "^[^\\u0000]*$"
+          description: >
+            trim 後 1–500 文字。前後の空白は保存前に除去され、
+            NUL（U+0000）は使用できない。
         atMs:
           type:
             - integer
@@ -722,6 +732,7 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: "^[^\\u0000]*$"
         atMs:
           type:
             - integer
@@ -751,7 +762,10 @@ components:
           type: string
           minLength: 1
           maxLength: 500
-          description: trim 後 1–500 文字。前後の空白は保存前に除去される。
+          pattern: "^[^\\u0000]*$"
+          description: >
+            trim 後 1–500 文字。前後の空白は保存前に除去され、
+            NUL（U+0000）は使用できない。
         atMs:
           type:
             - integer
@@ -785,7 +799,10 @@ components:
             - string
             - "null"
           maxLength: 500
-          description: 補足。trim 後に空なら null として保存される。
+          pattern: "^[^\\u0000]*$"
+          description: >
+            補足。trim 後に空なら null として保存される。
+            NUL（U+0000）は使用できない。
       additionalProperties: false
     ClipCommentReportCreated:
       type: object
@@ -821,6 +838,7 @@ components:
               note:
                 type: [string, "null"]
                 maxLength: 500
+                pattern: "^[^\\u0000]*$"
               createdAt:
                 $ref: "#/components/schemas/DateTime"
             required: [reason, note, createdAt]
@@ -909,7 +927,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExtensionSession"
         "403":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/Forbidden"
   /extension/link-token:
     post:
       operationId: extension.linkToken.issue
@@ -929,7 +947,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/Forbidden"
   /extension/link:
     post:
       operationId: extension.link
@@ -955,6 +973,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
   /extension/sync:
@@ -983,6 +1003,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
   "/extension/clips/{clipId}/comments":
@@ -1023,8 +1045,7 @@ paths:
           in: query
           description: この id より小さいコメントを返す（id < cursor）
           schema:
-            type: integer
-            minimum: 1
+            $ref: "#/components/schemas/ID"
         - name: limit
           in: query
           schema:
@@ -1044,7 +1065,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     post:
@@ -1081,7 +1102,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -1884,6 +1905,12 @@ paths:
                 $ref: "#/components/schemas/Clip"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "409":
+          description: The requested clip range would exclude an active comment anchor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     delete:
       operationId: clips.delete
       x-permission: ownerOrAdmin
@@ -2010,7 +2037,9 @@ paths:
 
         所有者（モデレーション）。このアプリに管理者ロールは存在しないため、
 
-        横断的なモデレーション権限は無い。既に削除済みのコメントは 404。
+        横断的なモデレーション権限は無い。未解決の通報は削除と同時に
+
+        `comment_deleted` として解決される。既に削除済みのコメントは 404。
       security:
         - nextAuthSession: []
       responses:
@@ -2156,6 +2185,8 @@ paths:
                   - data
                   - meta
                 additionalProperties: false
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

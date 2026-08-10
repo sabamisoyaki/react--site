@@ -160,6 +160,16 @@ function mapPrismaError(err: unknown): HttpError | null {
         prismaCode: err.code,
         meta: err.meta,
       });
+    case "P2034":
+      return new ConflictError(
+        "Transaction conflict; retry the request",
+        "TRANSACTION_CONFLICT",
+        {
+          prismaCode: err.code,
+          retryable: true,
+          meta: err.meta,
+        },
+      );
     default:
       return null;
   }

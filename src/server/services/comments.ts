@@ -78,6 +78,12 @@ async function createCommentWithPolicies(
   const activeUser = await lockActiveUser(userId, tx);
   if (!activeUser) throw new UnauthorizedError();
 
+  // 冪等な再試行でも、対象クリップが現在も有効であることを先に確認する。
+  // user -> clip の順に固定することで、投稿・通報・解決のロック順も揃う。
+  const clip = await lockActiveById(clipId, tx);
+  if (!clip) throw new NotFoundError("Clip not found");
+  assertAtMsInClipRange(atMs, clip);
+
   if (clientRequestId) {
     const existing = await findClipCommentByClientRequestId(
       userId,
@@ -99,11 +105,6 @@ async function createCommentWithPolicies(
       return existing;
     }
   }
-
-  // クリップ更新と同じ行ロックを取り、範囲検証から INSERT まで区間を固定する。
-  const clip = await lockActiveById(clipId, tx);
-  if (!clip) throw new NotFoundError("Clip not found");
-  assertAtMsInClipRange(atMs, clip);
 
   const since = new Date(Date.now() - 60_000);
   const recentCount = await countRecentClipCommentsByUser(userId, since, tx);
@@ -194,8 +195,6 @@ export async function createExtensionClipComment(
     extensionInstanceId,
     token,
   );
-  const now = new Date();
-
   const comment = await prisma.$transaction(async (tx) => {
     const created = await createCommentWithPolicies(
       tx,
@@ -208,11 +207,11 @@ export async function createExtensionClipComment(
 
     const updated = await tx.$queryRaw<Array<{ id: bigint }>>`
       UPDATE linked_extensions
-      SET last_seen_at = ${now}
+      SET last_seen_at = GREATEST(last_seen_at, statement_timestamp())
       WHERE id = ${linkedExtension.id}
         AND extension_auth_hash = ${linkedExtension.extensionAuthHash}
         AND revoked_at IS NULL
-        AND expires_at > ${now}
+        AND expires_at > statement_timestamp()
       RETURNING id
     `;
     if (updated.length !== 1) throw new UnauthorizedError("Unauthorized");
@@ -277,16 +276,17 @@ export async function createClipCommentAsUser(
   return toCommentView(comment);
 }
 
-/**
- * コメントの論理削除。消せるのは投稿者本人か、そのコメントが付いている
- * クリップの所有者（モデレーション）。管理者ロールはこのアプリに存在しない。
- */
+/** 消せるのは投稿者本人か、コメントが付いているクリップの所有者。 */
 export async function deleteClipComment(
   userId: number,
   clipId: number,
   commentId: number,
 ) {
   await prisma.$transaction(async (tx) => {
+    // ロック順は user -> clip -> comment（lockClipCommentForModeration 参照）
+    const activeUser = await lockActiveUser(userId, tx);
+    if (!activeUser) throw new UnauthorizedError();
+
     const comment = await lockClipCommentForModeration(clipId, commentId, tx);
     if (!comment) throw new NotFoundError("Comment not found");
 
@@ -294,15 +294,16 @@ export async function deleteClipComment(
     const isClipOwner = String(comment.clipOwnerId) === String(userId);
     if (!isAuthor && !isClipOwner) throw new ForbiddenError();
 
+    // 削除は通報への回答でもある。削除後は解決APIが対象を引けなくなるので、
+    // 未解決通報をここで閉じる。
+    await resolveClipCommentReports(commentId, userId, "comment_deleted", tx);
+
     const result = await softDeleteClipComment(commentId, tx);
     if (result.count === 0) throw new NotFoundError("Comment not found");
   });
 }
 
-/**
- * コメントの通報。自分のコメントは通報できない（消せばよい）。
- * 同じ人が同じコメントを二重通報した場合は 409。
- */
+/** 自分のコメントは通報ではなく削除で対処する。 */
 export async function reportClipComment(
   userId: number,
   clipId: number,
@@ -311,6 +312,9 @@ export async function reportClipComment(
 ) {
   try {
     const report = await prisma.$transaction(async (tx) => {
+      const activeUser = await lockActiveUser(userId, tx);
+      if (!activeUser) throw new UnauthorizedError();
+
       const comment = await lockClipCommentForModeration(clipId, commentId, tx);
       if (!comment) throw new NotFoundError("Comment not found");
 
@@ -335,21 +339,19 @@ export async function reportClipComment(
       commentId: toSafeId(report.commentId, "report.commentId"),
     };
   } catch (error) {
-    // (comment_id, reporter_id) の一意制約
+    // 事前チェックではなく一意制約 (comment_id, reporter_id) 違反で検出する。
+    // 同時に2回通報されても必ず片方が 409 になる。
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      throw new ConflictError("Already reported");
+      throw new ConflictError("Already reported", "ALREADY_REPORTED");
     }
     throw error;
   }
 }
 
-/**
- * 通報の宛先はクリップ所有者。管理者ロールが無いので、
- * 横断的に通報を見られる人はこのアプリには存在しない。
- */
+/** 通報を見られるのはクリップ所有者だけ（横断的に見る管理者ロールは無い）。 */
 export async function listClipCommentReports(
   userId: number,
   clipId: number,
@@ -399,6 +401,9 @@ export async function resolveClipCommentReportsAsOwner(
   resolution: "dismissed",
 ) {
   await prisma.$transaction(async (tx) => {
+    const activeUser = await lockActiveUser(userId, tx);
+    if (!activeUser) throw new UnauthorizedError();
+
     const comment = await lockClipCommentForModeration(clipId, commentId, tx);
     if (!comment) throw new NotFoundError("Comment not found");
     if (String(comment.clipOwnerId) !== String(userId))

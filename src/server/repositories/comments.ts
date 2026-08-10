@@ -108,7 +108,7 @@ export async function listReportedCommentsForClip(
 export function resolveClipCommentReports(
   commentId: number,
   resolverId: number,
-  resolution: string,
+  resolution: "dismissed" | "comment_deleted",
   db: Prisma.TransactionClient = prisma,
 ) {
   return db.clipCommentReport.updateMany({
@@ -126,22 +126,32 @@ export async function lockClipCommentForModeration(
   commentId: number,
   db: Prisma.TransactionClient,
 ) {
-  const rows = await db.$queryRaw<
-    Array<{ id: bigint; userId: bigint; clipOwnerId: bigint }>
-  >`
+  // JOIN に対する FOR UPDATE は行ロックの取得順を保証しないため、clip と comment を
+  // 分けて固定順に取得する。呼び出し側の user lock と合わせて
+  // user -> clip -> comment が全モデレーション経路の共通順序になる。
+  const clips = await db.$queryRaw<Array<{ clipOwnerId: bigint }>>`
     SELECT
-      cc.id,
-      cc.user_id AS "userId",
-      c.user_id AS "clipOwnerId"
-    FROM clip_comments cc
-    JOIN clips c ON c.id = cc.clip_id
-    WHERE cc.id = ${BigInt(commentId)}
-      AND cc.clip_id = ${BigInt(clipId)}
-      AND cc.deleted_at IS NULL
-      AND c.deleted_at IS NULL
-    FOR UPDATE OF cc, c
+      user_id AS "clipOwnerId"
+    FROM clips
+    WHERE id = ${BigInt(clipId)}
+      AND deleted_at IS NULL
+    FOR UPDATE
   `;
-  return rows[0] ?? null;
+  const clip = clips[0];
+  if (!clip) return null;
+
+  const comments = await db.$queryRaw<Array<{ id: bigint; userId: bigint }>>`
+    SELECT
+      id,
+      user_id AS "userId"
+    FROM clip_comments
+    WHERE id = ${BigInt(commentId)}
+      AND clip_id = ${BigInt(clipId)}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  `;
+  const comment = comments[0];
+  return comment ? { ...comment, clipOwnerId: clip.clipOwnerId } : null;
 }
 
 /**

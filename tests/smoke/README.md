@@ -11,8 +11,9 @@
      が真になり、セッション Cookie 名が `__Secure-authjs.session-token` になる。
      スクリプトはこの名前で Cookie を偽造する。`next dev` に対して回すなら
      Cookie 名を `authjs.session-token` に変える必要がある。
-   - Chrome は `http://localhost` を secure origin として扱うので、
-     `Secure` 属性付き Cookie でも HTTP のまま通る。
+   - Chrome は `http://localhost` と `http://127.0.0.1` を secure origin として
+     扱うので、`Secure` 属性付き Cookie でも HTTP のまま通る。`smoke:ui` は
+     Cookie の `domain` を `SMOKE_BASE` のホスト名から導出するので、両者どちらでもよい。
 
 ## 実行
 
@@ -37,7 +38,7 @@ PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core npm run smoke:ui
 | `SMOKE_BASE` | `http://127.0.0.1:3000` | 対象サーバー |
 | `PLAYWRIGHT_CORE` | （必須・UI のみ） | playwright-core のパス |
 | `CHROME_PATH` | Windows の既定パス | システム Chrome の実行ファイル |
-| `SMOKE_SHOT_DIR` | `.` | スクリーンショット出力先 |
+| `SMOKE_SHOT_DIR` | OS の一時ディレクトリ | スクリーンショット出力先 |
 
 ## 後始末
 

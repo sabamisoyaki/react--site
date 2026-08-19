@@ -514,6 +514,9 @@ try {
         cookie: authCookie,
         body: JSON.stringify({ body: `seq-${n}` }),
       });
+      // 準備の POST が落ちると、既存コメントだけで並び順・ページング条件を
+      // 満たしてしまい後続が偽陽性になる。ここで必ず断定する。
+      eq(`ページング用 seq-${n} の投稿は 201`, r.status, 201);
       if (r.json?.id) createdCommentIds.push(BigInt(r.json.id));
     }
 
@@ -859,10 +862,11 @@ try {
     eq("解決理由が保存される", storedResolution.resolution, "dismissed");
     check("解決日時が保存される", storedResolution.resolvedAt != null);
 
-    await req(`/api/v1/clips/${clipId}/comments/${target}`, {
-      method: "DELETE",
-      cookie: ownerCookie,
-    });
+    const deletedAfterResolve = await req(
+      `/api/v1/clips/${clipId}/comments/${target}`,
+      { method: "DELETE", cookie: ownerCookie },
+    );
+    eq("解決済み通報のコメントも削除できる", deletedAfterResolve.status, 204);
     const after = await req(`/api/v1/clips/${clipId}/comment-reports`, {
       cookie: ownerCookie,
     });

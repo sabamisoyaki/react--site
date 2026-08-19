@@ -233,9 +233,11 @@ try {
     );
 
     const beforeGet = after.lastSeenAt;
-    await req(
+    const getForActivity = await req(
       `/api/extension/clips/${clipId}/comments?extensionInstanceId=${instanceId}`,
     );
+    // 401/500 でも lastSeenAt は動かないので、GET が成功したことを先に断定する
+    eq("活動更新の確認に使う GET が 200", getForActivity.status, 200);
     const afterGet = await prisma.linkedExtension.findUniqueOrThrow({
       where: { id: linked.id },
       select: { lastSeenAt: true },

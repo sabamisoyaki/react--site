@@ -2,12 +2,13 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
+
+const {
   buildPlaybackUrl,
   buildServiceUrl,
   clearPlaybackClipId,
   openClipPlayback,
-} from "../../src/lib/clips/playback.ts";
+} = await import("../../src/lib/clips/playback.ts");
 
 /**
  * openClipPlayback は document.cookie / window への副作用が本体なので、
@@ -18,6 +19,13 @@ function installDomStub({ popupBlocked = false } = {}) {
   const cookies = new Map();
   const opened = [];
   const events = [];
+  // 元の記述子を保存する。undefined を代入するだけだと own property が残り、
+  // `"document" in globalThis` が true のままになる。
+  const originalDocument = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "document",
+  );
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 
   globalThis.document = {
     set cookie(value) {
@@ -48,8 +56,13 @@ function installDomStub({ popupBlocked = false } = {}) {
     opened,
     events,
     restore() {
-      globalThis.document = undefined;
-      globalThis.window = undefined;
+      for (const [key, descriptor] of [
+        ["document", originalDocument],
+        ["window", originalWindow],
+      ]) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else delete globalThis[key];
+      }
     },
   };
 }

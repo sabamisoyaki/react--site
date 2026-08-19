@@ -4,22 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-function sourceSection(source, start, end) {
-  const startIndex = source.indexOf(start);
-  const endIndex = source.indexOf(end, startIndex + start.length);
-  assert.notEqual(startIndex, -1, `missing section start: ${start}`);
-  assert.notEqual(endIndex, -1, `missing section end: ${end}`);
-  return source.slice(startIndex, endIndex);
-}
-
-function assertAppearsInOrder(source, tokens) {
-  let previous = -1;
-  for (const token of tokens) {
-    const index = source.indexOf(token, previous + 1);
-    assert.ok(index > previous, `${token} must appear after the previous step`);
-    previous = index;
-  }
-}
+import { assertAppearsInOrder, sourceSection } from "../helpers/source.mjs";
 
 const commentsRepository = readFileSync(
   "src/server/repositories/comments.ts",

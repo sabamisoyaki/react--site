@@ -3,22 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-function sourceSection(source, start, end) {
-  const startIndex = source.indexOf(start);
-  const endIndex = source.indexOf(end, startIndex + start.length);
-  assert.notEqual(startIndex, -1, `missing section start: ${start}`);
-  assert.notEqual(endIndex, -1, `missing section end: ${end}`);
-  return source.slice(startIndex, endIndex);
-}
-
-function assertAppearsInOrder(source, tokens) {
-  let previous = -1;
-  for (const token of tokens) {
-    const index = source.indexOf(token, previous + 1);
-    assert.ok(index > previous, `${token} must appear after the previous step`);
-    previous = index;
-  }
-}
+import { assertAppearsInOrder, sourceSection } from "../helpers/source.mjs";
 
 const commentsService = readFileSync("src/server/services/comments.ts", "utf8");
 const extensionsService = readFileSync(
@@ -49,7 +34,7 @@ test("extension comment POST compares expiry and advances activity in one Prisma
   );
   assert.doesNotMatch(
     section,
-    /statement_timestamp\(\)|CURRENT_TIMESTAMP|\bnow\(\)/i,
+    /statement_timestamp\(\)|CURRENT_TIMESTAMP|(?<![.\w])now\(\)/i,
   );
 });
 
@@ -77,7 +62,7 @@ test("extension token rotation keeps expiry CAS and monotonic activity on the sa
   assert.match(section, /if \(rotated\.length !== 1\)/);
   assert.doesNotMatch(
     section,
-    /statement_timestamp\(\)|CURRENT_TIMESTAMP|\bnow\(\)/i,
+    /statement_timestamp\(\)|CURRENT_TIMESTAMP|(?<![.\w])now\(\)/i,
   );
 });
 
@@ -105,7 +90,7 @@ test("extension sync rechecks auth at commit and cannot roll last_seen_at backwa
   );
   assert.doesNotMatch(
     section,
-    /SET last_seen_at = \$\{|statement_timestamp\(\)|CURRENT_TIMESTAMP|\bnow\(\)/i,
+    /SET last_seen_at = \$\{|statement_timestamp\(\)|CURRENT_TIMESTAMP|(?<![.\w])now\(\)/i,
   );
 });
 

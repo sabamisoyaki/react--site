@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-// tsconfig paths を解決するため tsx 経由で読み込む（test:comments を参照）
+import { sourceSection } from "../helpers/source.mjs";
+
+// tsconfig paths を解決するため tsx 経由で読み込む（npm test は全ファイルを tsx で回す）
 const {
   CLIP_COMMENT_REPORT_REASONS,
   clipCommentBodySchema,
@@ -173,7 +175,12 @@ test("clip comment body rules are shared with the extension API", async (t) => {
       extensionInstanceId: uuid,
       body: raw,
     });
-    assert.equal(site.data, extension.data.body);
+    // 両方が失敗すると data が両方 undefined になり、同値比較だけでは素通りする。
+    // 期待値そのものを固定して、両APIから trim が消えた場合も落ちるようにする。
+    assert.equal(site.success, true);
+    assert.equal(extension.success, true);
+    assert.equal(site.data, "hello");
+    assert.equal(extension.data.body, "hello");
   });
 
   await t.test("both reject NUL", () => {
@@ -288,9 +295,39 @@ test("clipCommentReportCreateBodySchema", async (t) => {
   });
 
   await t.test("理由の一覧は OpenAPI の enum と一致", () => {
+    // ベタ書き配列と比べるだけでは、OpenAPI 側だけが変わったときに気づけない。
+    // 実際に openapi/v1.yaml から enum を読み出して突き合わせる。
+    const spec = readFileSync("openapi/v1.yaml", "utf8");
+    const expected = [...CLIP_COMMENT_REPORT_REASONS];
+
+    // ClipCommentReportCreate（ブロック形式の enum）
+    const createSchema = sourceSection(
+      spec,
+      "    ClipCommentReportCreate:",
+      "\n    ClipCommentReport",
+    );
+    const blockEnum = [];
+    for (const line of createSchema
+      .slice(createSchema.indexOf("enum:"))
+      .split("\n")
+      .slice(1)) {
+      // 連続する list item だけを取る。次のキーに入ったら打ち切る
+      // （打ち切らないと note.type の [- string, - "null"] まで拾ってしまう）。
+      const item = line.match(/^\s+- (\S.*)$/);
+      if (!item) break;
+      blockEnum.push(item[1].trim());
+    }
+    assert.deepEqual(blockEnum, expected, "ClipCommentReportCreate の enum");
+
+    // recentReports 内（フロー形式の enum）
+    const flowMatch = spec.match(
+      /reason:\s*\n\s*type: string\s*\n\s*enum: \[([^\]]+)\]/,
+    );
+    assert.notEqual(flowMatch, null, "フロー形式の reason enum が見つからない");
     assert.deepEqual(
-      [...CLIP_COMMENT_REPORT_REASONS],
-      ["spam", "harassment", "spoiler", "other"],
+      flowMatch[1].split(",").map((value) => value.trim()),
+      expected,
+      "recentReports[].reason の enum",
     );
   });
 
@@ -405,16 +442,20 @@ test("comment cursor round-trip keeps the id the service filters on", async (t) 
 
 test("OpenAPI comment auth and extension auth match the implemented routes", () => {
   const spec = readFileSync("openapi/v1.yaml", "utf8");
-  const sitePost = spec.slice(
-    spec.indexOf("operationId: clips.comments.create"),
-    spec.indexOf('"/clips/{clipId}/comments/{commentId}"'),
+  // 目印が消えた／paths が並び替えられた場合、生の indexOf だと空スライスになり
+  // doesNotMatch が素通りする。sourceSection は見つからない時点で落ちる。
+  const sitePost = sourceSection(
+    spec,
+    "operationId: clips.comments.create",
+    '"/clips/{clipId}/comments/{commentId}"',
   );
   assert.match(sitePost, /nextAuthSession/);
   assert.doesNotMatch(sitePost, /bearerAuth/);
 
-  const extensionPost = spec.slice(
-    spec.indexOf("operationId: extension.clips.comments.create"),
-    spec.indexOf("operationId: users.meGet"),
+  const extensionPost = sourceSection(
+    spec,
+    "operationId: extension.clips.comments.create",
+    "operationId: users.meGet",
   );
   assert.match(extensionPost, /extensionBearerAuth/);
   assert.doesNotMatch(
@@ -425,24 +466,34 @@ test("OpenAPI comment auth and extension auth match the implemented routes", () 
 
 test("OpenAPI documents raw comment text limits and mutation conflicts", () => {
   const spec = readFileSync("openapi/v1.yaml", "utf8");
-  assert.equal(
-    spec.match(/送信された未加工入力で最大 500 Unicode コードポイント/g)
-      ?.length,
-    3,
-  );
+  // 出現回数を固定すると、4 つ目のフィールドを「正しく」書いたときに落ちてしまう。
+  // 上限を持つスキーマそれぞれが raw-input ルールを書いていることを個別に確認する。
+  const rawInputRule = /送信された未加工入力で最大 500 Unicode コードポイント/;
+  const limitedSchemas = [
+    ["ExtensionCommentCreateRequest", "    ClipComment:"],
+    ["ClipCommentCreate", "    ClipCommentReportCreate:"],
+    ["ClipCommentReportCreate", "    ClipCommentReportCreated:"],
+  ];
+  for (const [schemaName, nextSchema] of limitedSchemas) {
+    const section = sourceSection(spec, `    ${schemaName}:`, nextSchema);
+    assert.match(section, /maxLength: 500/, schemaName);
+    assert.match(section, rawInputRule, schemaName);
+  }
 
-  const commentDelete = spec.slice(
-    spec.indexOf("operationId: clips.comments.delete"),
-    spec.indexOf('"/clips/{clipId}/comments/{commentId}/reports"'),
+  const commentDelete = sourceSection(
+    spec,
+    "operationId: clips.comments.delete",
+    '"/clips/{clipId}/comments/{commentId}/reports"',
   );
   assert.match(
     commentDelete,
     /"409":\s+\$ref: "#\/components\/responses\/Conflict"/,
   );
 
-  const reportPatch = spec.slice(
-    spec.indexOf("operationId: clips.comments.reports.resolve"),
-    spec.indexOf('"/clips/{clipId}/comment-reports"'),
+  const reportPatch = sourceSection(
+    spec,
+    "operationId: clips.comments.reports.resolve",
+    '"/clips/{clipId}/comment-reports"',
   );
   assert.match(
     reportPatch,

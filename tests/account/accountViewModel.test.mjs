@@ -2,13 +2,16 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
+
+const {
   collectSubscriptionServices,
   formatDateJa,
   formatLinkedExtensionRow,
   formatSubscriptionLabel,
   maskInstanceId,
-} from "../../src/app/(site_data)/(protected)/account/accountViewModel.ts";
+} = await import(
+  "../../src/app/(site_data)/(protected)/account/accountViewModel.ts"
+);
 
 test("collectSubscriptionServices removes blanks and duplicates", () => {
   const clips = [

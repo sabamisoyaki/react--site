@@ -9,6 +9,8 @@
 // 実行前に任意の場所へ `npm i playwright-core` し、そのパスを渡す:
 //   PLAYWRIGHT_CORE=/path/to/node_modules/playwright-core npm run smoke:ui
 // Chrome はシステムのものを使う（CHROME_PATH で上書き可）。
+import { tmpdir } from "node:os";
+
 const PLAYWRIGHT_CORE = process.env.PLAYWRIGHT_CORE;
 if (!PLAYWRIGHT_CORE) {
   console.error(
@@ -19,7 +21,7 @@ if (!PLAYWRIGHT_CORE) {
 const CHROME_PATH =
   process.env.CHROME_PATH ??
   "C:/Program Files/Google/Chrome/Application/chrome.exe";
-const SHOT_DIR = process.env.SMOKE_SHOT_DIR ?? ".";
+const SHOT_DIR = process.env.SMOKE_SHOT_DIR ?? tmpdir();
 
 const { chromium } = await import(
   `file:///${PLAYWRIGHT_CORE.replace(/\\/g, "/")}/index.mjs`
@@ -27,7 +29,9 @@ const { chromium } = await import(
 const { encode } = await import("next-auth/jwt");
 const { prisma } = await import("@/server/db");
 
-const BASE = process.env.SMOKE_BASE ?? "http://localhost:3000";
+const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3000";
+// Cookie の domain は BASE と一致していなければ送信されない
+const COOKIE_DOMAIN = new URL(BASE).hostname;
 const COOKIE_NAME = "__Secure-authjs.session-token"; // next start = production
 
 const authSecret = process.env.AUTH_SECRET;
@@ -167,7 +171,7 @@ try {
     {
       name: COOKIE_NAME,
       value,
-      domain: "localhost",
+      domain: COOKIE_DOMAIN,
       path: "/",
       httpOnly: true,
       secure: true,

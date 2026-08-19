@@ -6,6 +6,37 @@ export function findById(id: number) {
   return prisma.user.findUnique({ where: { id } });
 }
 
+export async function lockUsersByIdOrder(
+  userIds: readonly (number | bigint)[],
+  db: Prisma.TransactionClient,
+) {
+  const uniqueUserIds = [...new Set(userIds.map((id) => BigInt(id)))];
+  if (uniqueUserIds.length === 0) return [];
+
+  return db.$queryRaw<Array<{ id: bigint; deletedAt: Date | null }>>`
+    SELECT
+      id,
+      deleted_at AS "deletedAt"
+    FROM users
+    WHERE id = ANY(${uniqueUserIds}::bigint[])
+    ORDER BY id ASC
+    FOR UPDATE
+  `;
+}
+
+export async function lockOwnedClipsByIdOrder(
+  userId: number,
+  db: Prisma.TransactionClient,
+) {
+  return db.$queryRaw<Array<{ id: bigint }>>`
+    SELECT id
+    FROM clips
+    WHERE user_id = ${BigInt(userId)}
+    ORDER BY id ASC
+    FOR UPDATE
+  `;
+}
+
 export async function list(
   opts: {
     skip?: number;
@@ -47,12 +78,12 @@ export function update(
   return prisma.user.update({ where: { id }, data });
 }
 
-export function softDelete(id: number) {
-  return prisma.user.update({ where: { id }, data: { deletedAt: new Date() } });
+export function softDelete(id: number, db: Prisma.TransactionClient = prisma) {
+  return db.user.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
-export function hardDelete(id: number) {
-  return prisma.user.delete({ where: { id } });
+export function hardDelete(id: number, db: Prisma.TransactionClient = prisma) {
+  return db.user.delete({ where: { id } });
 }
 
 export async function listUserVods(

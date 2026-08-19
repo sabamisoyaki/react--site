@@ -6,6 +6,13 @@ export function findById(id: number) {
   return prisma.clip.findFirst({ where: { id, deletedAt: null } });
 }
 
+export function findActiveOwnerById(id: number) {
+  return prisma.clip.findFirst({
+    where: { id, deletedAt: null },
+    select: { userId: true },
+  });
+}
+
 export function findByIdWithVod(id: number) {
   return prisma.clip.findFirst({
     where: { id, deletedAt: null },
@@ -156,12 +163,12 @@ export function countActiveAnchorsOutsideRange(
   });
 }
 
-export function softDelete(id: number) {
-  return prisma.clip.update({ where: { id }, data: { deletedAt: new Date() } });
+export function softDelete(id: number, db: Prisma.TransactionClient = prisma) {
+  return db.clip.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
-export function hardDelete(id: number) {
-  return prisma.clip.delete({ where: { id } });
+export function hardDelete(id: number, db: Prisma.TransactionClient = prisma) {
+  return db.clip.delete({ where: { id } });
 }
 
 export function incrementViews(id: number, by: bigint = 1n) {

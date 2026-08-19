@@ -38,6 +38,27 @@ test("clipCommentCreateBodySchema", async (t) => {
     assert.equal(schema.safeParse({ body: "a".repeat(501) }).success, false);
   });
 
+  await t.test(
+    "body limit counts Unicode code points, not UTF-16 units",
+    () => {
+      const accepted = schema.safeParse({ body: "😀".repeat(500) });
+      assert.equal(accepted.success, true);
+      assert.equal(accepted.data.body, "😀".repeat(500));
+      assert.equal(schema.safeParse({ body: "😀".repeat(501) }).success, false);
+    },
+  );
+
+  await t.test("body limit is checked before trim", () => {
+    assert.equal(
+      schema.safeParse({ body: ` ${"a".repeat(499)}` }).success,
+      true,
+    );
+    assert.equal(
+      schema.safeParse({ body: ` ${"a".repeat(500)}` }).success,
+      false,
+    );
+  });
+
   await t.test("body is trimmed", () => {
     const result = schema.safeParse({ body: "  hello  " });
     assert.equal(result.success, true);
@@ -306,6 +327,23 @@ test("clipCommentReportCreateBodySchema", async (t) => {
     );
   });
 
+  await t.test("note の上限は Unicode コードポイントで trim 前に判定", () => {
+    const accepted = schema.safeParse({
+      reason: "spam",
+      note: "😀".repeat(500),
+    });
+    assert.equal(accepted.success, true);
+    assert.equal(accepted.data.note, "😀".repeat(500));
+    assert.equal(
+      schema.safeParse({ reason: "spam", note: "😀".repeat(501) }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({ reason: "spam", note: ` ${"a".repeat(500)}` }).success,
+      false,
+    );
+  });
+
   await t.test("note に NUL は使用できない", () => {
     assert.equal(
       schema.safeParse({ reason: "other", note: "before\u0000after" }).success,
@@ -382,5 +420,32 @@ test("OpenAPI comment auth and extension auth match the implemented routes", () 
   assert.doesNotMatch(
     spec,
     /ExtensionComment には含まれない（Phase 1 契約を維持するため）/,
+  );
+});
+
+test("OpenAPI documents raw comment text limits and mutation conflicts", () => {
+  const spec = readFileSync("openapi/v1.yaml", "utf8");
+  assert.equal(
+    spec.match(/送信された未加工入力で最大 500 Unicode コードポイント/g)
+      ?.length,
+    3,
+  );
+
+  const commentDelete = spec.slice(
+    spec.indexOf("operationId: clips.comments.delete"),
+    spec.indexOf('"/clips/{clipId}/comments/{commentId}/reports"'),
+  );
+  assert.match(
+    commentDelete,
+    /"409":\s+\$ref: "#\/components\/responses\/Conflict"/,
+  );
+
+  const reportPatch = spec.slice(
+    spec.indexOf("operationId: clips.comments.reports.resolve"),
+    spec.indexOf('"/clips/{clipId}/comment-reports"'),
+  );
+  assert.match(
+    reportPatch,
+    /"409":\s+\$ref: "#\/components\/responses\/Conflict"/,
   );
 });

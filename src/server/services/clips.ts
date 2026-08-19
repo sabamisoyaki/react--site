@@ -5,8 +5,11 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  UnauthorizedError,
 } from "@/server/http/errors";
 import * as repo from "@/server/repositories/clips";
+import { resolveClipCommentReportsForClips } from "@/server/repositories/comments";
+import { lockUsersByIdOrder } from "@/server/repositories/users";
 
 export function listClips(opts: Parameters<typeof repo.list>[0]) {
   return repo.list(opts);
@@ -80,9 +83,45 @@ export async function deleteClip(
   id: number,
   hard = false,
 ) {
-  const clip = await getClip(id);
-  if (String(clip.userId) !== String(currentUserId)) throw new ForbiddenError();
-  return hard ? repo.hardDelete(id) : repo.softDelete(id);
+  const clipOwner = await repo.findActiveOwnerById(id);
+  if (!clipOwner) throw new NotFoundError("Clip not found");
+
+  return prisma.$transaction(async (tx) => {
+    const lockedUsers = await lockUsersByIdOrder(
+      [currentUserId, clipOwner.userId],
+      tx,
+    );
+    const usersById = new Map(
+      lockedUsers.map((user) => [String(user.id), user]),
+    );
+    const currentUser = usersById.get(String(currentUserId));
+    if (!currentUser || currentUser.deletedAt !== null) {
+      throw new UnauthorizedError();
+    }
+    const owner = usersById.get(String(clipOwner.userId));
+    if (!owner || owner.deletedAt !== null) {
+      throw new NotFoundError("Clip not found");
+    }
+
+    const clip = await repo.lockActiveById(id, tx);
+    if (!clip) throw new NotFoundError("Clip not found");
+    if (String(clip.userId) !== String(clipOwner.userId)) {
+      throw new NotFoundError("Clip not found");
+    }
+    if (String(clip.userId) !== String(currentUserId)) {
+      throw new ForbiddenError();
+    }
+
+    if (hard) return repo.hardDelete(id, tx);
+
+    await resolveClipCommentReportsForClips(
+      [clip.id],
+      currentUserId,
+      "clip_deleted",
+      tx,
+    );
+    return repo.softDelete(id, tx);
+  });
 }
 
 export function incrementClipViews(id: number, by = 1n) {

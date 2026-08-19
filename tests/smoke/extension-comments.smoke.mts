@@ -93,12 +93,18 @@ try {
   fixtureClipId = clip.id;
   const clipId = Number(clip.id);
 
+  const linkedFixtureNow = Date.now();
   const linked = await prisma.linkedExtension.create({
     data: {
       userId: clip.userId,
       extensionInstanceId: instanceId,
       extensionAuthHash: authHash,
-      expiresAt: new Date(Date.now() + 86_400_000),
+      // This intentionally stays below the adapter's documented nine-hour
+      // timestamptz skew. GET authentication and POST's final CAS must agree.
+      expiresAt: new Date(linkedFixtureNow + 60 * 60 * 1000),
+      // Avoid the database-clock default here: the production link path writes
+      // last_seen_at through the same Prisma Date parameter coordinate.
+      lastSeenAt: new Date(linkedFixtureNow - 60_000),
     },
     select: { id: true, lastSeenAt: true },
   });

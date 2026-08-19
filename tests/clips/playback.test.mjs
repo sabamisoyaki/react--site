@@ -14,7 +14,7 @@ import {
  * 最小の DOM スタブを立てて副作用そのものを検証する。
  * cookie は名前ごとに最後の書き込みを保持し、max-age=0 は削除として扱う。
  */
-function installDomStub() {
+function installDomStub({ popupBlocked = false } = {}) {
   const cookies = new Map();
   const opened = [];
   const events = [];
@@ -36,7 +36,10 @@ function installDomStub() {
   };
 
   globalThis.window = {
-    open: (url) => opened.push(url),
+    open: (url) => {
+      opened.push(url);
+      return popupBlocked ? null : {};
+    },
     dispatchEvent: (event) => events.push(event),
   };
 
@@ -117,6 +120,20 @@ test("openClipPlayback writes no cookie at all for an unsupported service", () =
     assert.equal(dom.cookies.size, 0);
     assert.equal(dom.events.length, 0);
     assert.equal(dom.opened.length, 0);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("openClipPlayback performs no handoff when the popup is blocked", () => {
+  const dom = installDomStub({ popupBlocked: true });
+  try {
+    assert.equal(openClipPlayback({ ...supportedClip, id: 42 }), false);
+    assert.equal(dom.cookies.size, 0);
+    assert.equal(dom.events.length, 0);
+    assert.deepEqual(dom.opened, [
+      "https://www.netflix.com/watch/70176435?t=10",
+    ]);
   } finally {
     dom.restore();
   }

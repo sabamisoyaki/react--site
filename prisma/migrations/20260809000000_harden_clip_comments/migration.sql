@@ -39,7 +39,11 @@ ALTER TABLE "clip_comment_reports"
     CHECK (
       ("resolved_at" IS NULL AND "resolved_by_id" IS NULL AND "resolution" IS NULL)
       OR
-      ("resolved_at" IS NOT NULL AND "resolution" IN ('dismissed', 'comment_deleted'))
+      (
+        "resolved_at" IS NOT NULL
+        AND "resolution" IS NOT NULL
+        AND "resolution" IN ('dismissed', 'comment_deleted', 'clip_deleted', 'owner_deleted')
+      )
     );
 
 CREATE INDEX "clip_comment_reports_resolved_by_id_idx"

@@ -27,5 +27,5 @@ ALTER TABLE "clip_comment_reports" ADD CONSTRAINT "clip_comment_reports_reporter
 -- CreateIndex: 同じ人が同じコメントを二重通報できないようにする
 CREATE UNIQUE INDEX "clip_comment_reports_comment_id_reporter_id_key" ON "clip_comment_reports"("comment_id", "reporter_id");
 
--- CreateIndex
-CREATE INDEX "clip_comment_reports_comment_id_idx" ON "clip_comment_reports"("comment_id");
+-- CreateIndex: supports reporter foreign-key cascades
+CREATE INDEX "clip_comment_reports_reporter_id_idx" ON "clip_comment_reports"("reporter_id");

@@ -115,7 +115,7 @@ model ClipComment {
   /// null は「クリップ全体へのコメント」を意味する。
   atMs      Int?      @map("at_ms")
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
@@ -124,6 +124,7 @@ model ClipComment {
   reports ClipCommentReport[]
 
   @@unique([userId, clientRequestId])
+  @@index([clipId])
   @@index([userId, createdAt])
   /// @@partialIndex([clipId, id])
   @@map("clip_comments")
@@ -149,7 +150,7 @@ model ClipCommentReport {
   // 同じ人が同じコメントを何度も通報できないようにする。
   // 論理削除を持たないモデルなので素の @@unique でよい。
   @@unique([commentId, reporterId])
-  @@index([commentId])
+  @@index([reporterId])
   @@index([resolvedById])
   @@map("clip_comment_reports")
 }

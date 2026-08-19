@@ -127,7 +127,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     Conflict:
-      description: Conflict / Unique constraint violation
+      description: Conflict / Concurrent transaction or unique constraint violation
       content:
         application/json:
           schema:
@@ -677,8 +677,8 @@ components:
           maxLength: 500
           pattern: "^[^\\u0000]*$"
           description: >
-            trim 後 1–500 文字。前後の空白は保存前に除去され、
-            NUL（U+0000）は使用できない。
+            送信された未加工入力で最大 500 Unicode コードポイント。
+            上限判定後に trim し、1 文字以上残る必要がある。NUL（U+0000）は使用できない。
         atMs:
           type:
             - integer
@@ -764,8 +764,8 @@ components:
           maxLength: 500
           pattern: "^[^\\u0000]*$"
           description: >
-            trim 後 1–500 文字。前後の空白は保存前に除去され、
-            NUL（U+0000）は使用できない。
+            送信された未加工入力で最大 500 Unicode コードポイント。
+            上限判定後に trim し、1 文字以上残る必要がある。NUL（U+0000）は使用できない。
         atMs:
           type:
             - integer
@@ -801,8 +801,8 @@ components:
           maxLength: 500
           pattern: "^[^\\u0000]*$"
           description: >
-            補足。trim 後に空なら null として保存される。
-            NUL（U+0000）は使用できない。
+            補足。送信された未加工入力で最大 500 Unicode コードポイント。
+            上限判定後に trim し、空なら null として保存される。NUL（U+0000）は使用できない。
       additionalProperties: false
     ClipCommentReportCreated:
       type: object
@@ -2057,6 +2057,8 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   "/clips/{clipId}/comments/{commentId}/reports":
     parameters:
       - name: clipId
@@ -2139,6 +2141,8 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   "/clips/{clipId}/comment-reports":
     parameters:
       - name: clipId

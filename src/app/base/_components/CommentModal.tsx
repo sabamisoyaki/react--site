@@ -2,10 +2,18 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  upsertCommentsById,
+  upsertReportedCommentsById,
+} from "@/lib/comments/collections";
+import {
+  COMMENT_BODY_MAX_CODE_POINTS,
+  countUnicodeCodePoints,
+  isWithinUnicodeCodePointLimit,
+  limitUnicodeCodePoints,
+  REPORT_NOTE_MAX_CODE_POINTS,
+} from "@/lib/comments/text";
 
-// サーバー側の clipCommentBodySchema と同じ上限。ここでの制限は文字数カウンタと
-// ボタン活性のためのUX用で、実際の強制はサーバー（超過は 400）が行う。
-const MAX_BODY_LENGTH = 500;
 const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   spam: "スパム",
   harassment: "嫌がらせ",
@@ -34,22 +42,12 @@ type ReportSummary = {
     createdAt: string;
   }>;
 };
+type ReportSummaryRow = ReportSummary & {
+  comment: Comment;
+};
 type ReportLoadError = {
   cursor: string | null;
 };
-
-function upsertCommentsById(
-  current: Comment[],
-  incoming: Comment[],
-): Comment[] {
-  const byId = new Map<number, Comment>();
-  for (const comment of current) byId.set(comment.id, comment);
-  for (const comment of incoming) byId.set(comment.id, comment);
-  return [...byId.values()].sort((left, right) => {
-    if (left.id === right.id) return 0;
-    return left.id > right.id ? -1 : 1;
-  });
-}
 
 const dateFormatter = new Intl.DateTimeFormat("ja-JP", {
   dateStyle: "medium",
@@ -98,6 +96,7 @@ export default function CommentModal({
   const isOpenRef = useRef(isOpen);
   const commentArticleRefs = useRef(new Map<number, HTMLElement>());
   const reportButtonRefs = useRef(new Map<number, HTMLButtonElement>());
+  const listRetryButtonRef = useRef<HTMLButtonElement>(null);
   const reportRetryButtonRef = useRef<HTMLButtonElement>(null);
   onCloseRef.current = onClose;
   isOpenRef.current = isOpen;
@@ -137,10 +136,15 @@ export default function CommentModal({
     viewerId != null && String(comment.userId) !== viewerId;
 
   const trimmedBody = body.trim();
+  const bodyCodePointCount = countUnicodeCodePoints(body);
+  const reportNoteCodePointCount = countUnicodeCodePoints(reportNote);
   const canSubmit =
-    trimmedBody.length > 0 &&
-    trimmedBody.length <= MAX_BODY_LENGTH &&
+    trimmedBody !== "" &&
+    isWithinUnicodeCodePointLimit(body, COMMENT_BODY_MAX_CODE_POINTS) &&
     !submitting;
+  const canSubmitReport =
+    reportingId === null &&
+    isWithinUnicodeCodePointLimit(reportNote, REPORT_NOTE_MAX_CODE_POINTS);
 
   const isRequestCurrent = useCallback(
     (generation: number) =>
@@ -232,13 +236,17 @@ export default function CommentModal({
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const payload = await res.json();
         if (!isCurrentReportLoad()) return;
+        const rows = Array.isArray(payload.data)
+          ? (payload.data as ReportSummaryRow[])
+          : [];
         const summaries: Record<number, ReportSummary> = {};
-        for (const row of payload.data ?? []) {
+        for (const row of rows) {
           summaries[row.comment.id] = {
             reportCount: row.reportCount,
             recentReports: row.recentReports ?? [],
           };
         }
+        setComments((previous) => upsertReportedCommentsById(previous, rows));
         setReportSummaries((previous) =>
           cursor ? { ...previous, ...summaries } : summaries,
         );
@@ -371,6 +379,14 @@ export default function CommentModal({
     }
   };
 
+  const retryFirstPage = async () => {
+    if (listState === "loading") return;
+    const generation = requestGenerationRef.current;
+    if (!isRequestCurrent(generation)) return;
+    await loadFirstPage(undefined, generation);
+    focusAfterDomUpdate(generation, () => listRetryButtonRef.current);
+  };
+
   const beginReport = (comment: Comment) => {
     setReportTarget(comment);
     setReportReason("other");
@@ -379,7 +395,7 @@ export default function CommentModal({
   };
 
   const report = async (comment: Comment) => {
-    if (reportingId !== null) return;
+    if (!canSubmitReport) return;
     const generation = requestGenerationRef.current;
     if (!isRequestCurrent(generation)) return;
 
@@ -610,9 +626,19 @@ export default function CommentModal({
             <p className="text-[13px] text-ink-muted">読み込み中…</p>
           )}
           {listState === "error" && (
-            <p className="text-[13px] font-bold text-accent" role="alert">
-              コメントを読み込めませんでした。
-            </p>
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-accent p-2.5 text-[12px]">
+              <p className="min-w-0 flex-1 font-bold text-accent" role="alert">
+                コメントを読み込めませんでした。
+              </p>
+              <button
+                ref={listRetryButtonRef}
+                type="button"
+                onClick={() => void retryFirstPage()}
+                className="shrink-0 cursor-pointer rounded-full border-2 border-ink bg-white px-3 py-1 font-extrabold"
+              >
+                再試行
+              </button>
+            </div>
           )}
           {isClipOwner && reportLoadError && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-accent p-2.5 text-[12px]">
@@ -635,7 +661,7 @@ export default function CommentModal({
               まだコメントがありません。最初のひとことをどうぞ。
             </p>
           )}
-          {listState === "ready" &&
+          {comments.length > 0 &&
             comments.map((comment) => (
               <article
                 key={comment.id}
@@ -759,12 +785,22 @@ export default function CommentModal({
                       補足（任意）
                       <textarea
                         value={reportNote}
-                        maxLength={500}
-                        onChange={(event) => setReportNote(event.target.value)}
+                        onChange={(event) =>
+                          setReportNote(
+                            limitUnicodeCodePoints(
+                              event.target.value,
+                              REPORT_NOTE_MAX_CODE_POINTS,
+                            ),
+                          )
+                        }
                         className="min-h-16 rounded-lg border-2 border-ink bg-white px-2 py-1.5"
                       />
                     </label>
-                    <div className="flex justify-end gap-2">
+                    <div className="flex items-center justify-end gap-2">
+                      <span className="mr-auto font-data text-[11px] text-ink-muted tabular-nums">
+                        {reportNoteCodePointCount} /{" "}
+                        {REPORT_NOTE_MAX_CODE_POINTS}
+                      </span>
                       <button
                         type="button"
                         onClick={() => {
@@ -781,7 +817,7 @@ export default function CommentModal({
                       <button
                         type="button"
                         onClick={() => report(comment)}
-                        disabled={reportingId !== null}
+                        disabled={!canSubmitReport}
                         className="cursor-pointer rounded-full bg-accent px-3 py-1 text-[12px] font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {reportingId === comment.id ? "送信中…" : "送信"}
@@ -829,16 +865,20 @@ export default function CommentModal({
               className="min-h-20 w-full resize-y rounded-xl border-2 border-ink px-3.5 py-2 text-[14px] outline-none placeholder:text-ink-muted focus:border-accent"
               placeholder="この切り抜きの感想を書く"
               value={body}
-              maxLength={MAX_BODY_LENGTH}
               onChange={(e) => {
+                const nextBody = limitUnicodeCodePoints(
+                  e.target.value,
+                  COMMENT_BODY_MAX_CODE_POINTS,
+                );
+                if (nextBody === body) return;
                 bodyRevisionRef.current += 1;
-                setBody(e.target.value);
+                setBody(nextBody);
                 submitRequestIdRef.current = null;
               }}
             />
             <div className="flex items-center gap-3">
               <span className="font-data text-[11.5px] text-ink-muted tabular-nums">
-                {trimmedBody.length} / {MAX_BODY_LENGTH}
+                {bodyCodePointCount} / {COMMENT_BODY_MAX_CODE_POINTS}
               </span>
               <button
                 type="button"

@@ -10,7 +10,10 @@ import {
   UnauthorizedError,
 } from "@/server/http/errors";
 import { type CursorPayload, encodeCursor } from "@/server/http/pagination";
-import { lockActiveById } from "@/server/repositories/clips";
+import {
+  findActiveOwnerById,
+  lockActiveById,
+} from "@/server/repositories/clips";
 import {
   countRecentClipCommentsByUser,
   createClipComment,
@@ -23,6 +26,7 @@ import {
   resolveClipCommentReports,
   softDeleteClipComment,
 } from "@/server/repositories/comments";
+import { lockUsersByIdOrder } from "@/server/repositories/users";
 import { authenticateLinkedExtension } from "@/server/services/extensions";
 
 type CommentWithUsername = {
@@ -205,13 +209,19 @@ export async function createExtensionClipComment(
       clientRequestId,
     );
 
+    // Keep the comparison and write on the same Prisma/adapter timestamp
+    // coordinate as expires_at. Using the database clock here makes this CAS
+    // disagree with authenticateLinkedExtension while the pg adapter applies
+    // its documented timestamp offset.
+    const activityAt = new Date();
+
     const updated = await tx.$queryRaw<Array<{ id: bigint }>>`
       UPDATE linked_extensions
-      SET last_seen_at = GREATEST(last_seen_at, statement_timestamp())
+      SET last_seen_at = GREATEST(last_seen_at, ${activityAt})
       WHERE id = ${linkedExtension.id}
         AND extension_auth_hash = ${linkedExtension.extensionAuthHash}
         AND revoked_at IS NULL
-        AND expires_at > statement_timestamp()
+        AND expires_at > ${activityAt}
       RETURNING id
     `;
     if (updated.length !== 1) throw new UnauthorizedError("Unauthorized");
@@ -310,13 +320,32 @@ export async function reportClipComment(
   commentId: number,
   input: { reason: string; note?: string | null },
 ) {
+  const clipOwner = await findActiveOwnerById(clipId);
+  if (!clipOwner) throw new NotFoundError("Comment not found");
+
   try {
     const report = await prisma.$transaction(async (tx) => {
-      const activeUser = await lockActiveUser(userId, tx);
-      if (!activeUser) throw new UnauthorizedError();
+      const lockedUsers = await lockUsersByIdOrder(
+        [userId, clipOwner.userId],
+        tx,
+      );
+      const usersById = new Map(
+        lockedUsers.map((user) => [String(user.id), user]),
+      );
+      const reporter = usersById.get(String(userId));
+      if (!reporter || reporter.deletedAt !== null) {
+        throw new UnauthorizedError();
+      }
+      const owner = usersById.get(String(clipOwner.userId));
+      if (!owner || owner.deletedAt !== null) {
+        throw new NotFoundError("Clip not found");
+      }
 
       const comment = await lockClipCommentForModeration(clipId, commentId, tx);
       if (!comment) throw new NotFoundError("Comment not found");
+      if (String(comment.clipOwnerId) !== String(clipOwner.userId)) {
+        throw new NotFoundError("Comment not found");
+      }
 
       if (String(comment.userId) === String(userId)) {
         throw new BadRequestError(

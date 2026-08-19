@@ -123,15 +123,18 @@ export function clearPlaybackClipId(): void {
 /**
  * クリップを外部サービスの該当場面で開く。
  * 旧拡張機能連携のために legacy cookie 群と clipSelected イベントも発火する。
- * 開けた場合 true、未対応サービスの場合 false を返す。
+ * 開けた場合 true、未対応サービスまたは popup がブロックされた場合 false を返す。
  */
 export function openClipPlayback(clip: ClipPlayback): boolean {
   const { name, title, username, service, url, starttime, endtime, id } = clip;
 
-  // cookie 書き込みより先に判定する。未対応サービスで cookie を上書きすると
+  // cookie 書き込みより先に URL と popup の成功を判定する。ハンドオフだけ行うと
   // 再生されないのに、再生中の別クリップのパネルへ誤ったコメントが出る。
   const playbackUrl = buildPlaybackUrl(service, url, starttime);
   if (!playbackUrl) return false;
+
+  const playbackWindow = window.open(playbackUrl, "_blank");
+  if (!playbackWindow) return false;
 
   const hasClipId = id !== undefined && Number.isSafeInteger(id) && id > 0;
 
@@ -168,7 +171,5 @@ export function openClipPlayback(clip: ClipPlayback): boolean {
 
   const event = new CustomEvent("clipSelected", { detail });
   window.dispatchEvent(event);
-
-  window.open(playbackUrl, "_blank");
   return true;
 }

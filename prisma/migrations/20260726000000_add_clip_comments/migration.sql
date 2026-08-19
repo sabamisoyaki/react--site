@@ -17,6 +17,9 @@ ALTER TABLE "clip_comments" ADD CONSTRAINT "clip_comments_clip_id_fkey" FOREIGN 
 -- AddForeignKey
 ALTER TABLE "clip_comments" ADD CONSTRAINT "clip_comments_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- CreateIndex: supports clip foreign-key cascades, including soft-deleted comments
+CREATE INDEX "clip_comments_clip_id_idx" ON "clip_comments"("clip_id");
+
 -- AddIndex for partial index on (clip_id, id) - will be augmented by prisma-augment.ts
 -- @@partialIndex([clipId, id])
 

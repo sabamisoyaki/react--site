@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  COMMENT_BODY_MAX_CODE_POINTS,
+  isWithinUnicodeCodePointLimit,
+  REPORT_NOTE_MAX_CODE_POINTS,
+} from "@/lib/comments/text";
 import { cursorPaginationQuerySchema, idSchema } from "@/server/schemas/common";
 
 // v1 と拡張API が同じ clip_comments.body (VarChar(500)) に書くので、ここを唯一の出所にする。
@@ -9,9 +14,15 @@ const withoutNulMessage = { message: "NUL characters are not allowed" };
 
 export const clipCommentBodySchema = z
   .string()
+  .refine(
+    (value) =>
+      isWithinUnicodeCodePointLimit(value, COMMENT_BODY_MAX_CODE_POINTS),
+    {
+      message: `Must contain at most ${COMMENT_BODY_MAX_CODE_POINTS} Unicode code points`,
+    },
+  )
   .trim()
   .min(1)
-  .max(500)
   .refine(withoutNul, withoutNulMessage);
 
 export const clipCommentListQuerySchema = cursorPaginationQuerySchema;
@@ -49,8 +60,14 @@ export const clipCommentReportCreateBodySchema = z
     reason: z.enum(CLIP_COMMENT_REPORT_REASONS),
     note: z
       .string()
+      .refine(
+        (value) =>
+          isWithinUnicodeCodePointLimit(value, REPORT_NOTE_MAX_CODE_POINTS),
+        {
+          message: `Must contain at most ${REPORT_NOTE_MAX_CODE_POINTS} Unicode code points`,
+        },
+      )
       .trim()
-      .max(500)
       .refine(withoutNul, withoutNulMessage)
       .optional()
       .nullable(),

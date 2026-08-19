@@ -2,6 +2,12 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/server/db";
 
+export type ClipCommentReportResolution =
+  | "dismissed"
+  | "comment_deleted"
+  | "clip_deleted"
+  | "owner_deleted";
+
 export async function listClipCommentsByIdCursor(
   clipId: number,
   opts: { cursor?: number; limit?: number } = {},
@@ -108,11 +114,36 @@ export async function listReportedCommentsForClip(
 export function resolveClipCommentReports(
   commentId: number,
   resolverId: number,
-  resolution: "dismissed" | "comment_deleted",
+  resolution: ClipCommentReportResolution,
   db: Prisma.TransactionClient = prisma,
 ) {
   return db.clipCommentReport.updateMany({
     where: { commentId: BigInt(commentId), resolvedAt: null },
+    data: {
+      resolvedAt: new Date(),
+      resolvedById: BigInt(resolverId),
+      resolution,
+    },
+  });
+}
+
+export async function resolveClipCommentReportsForClips(
+  clipIds: readonly (number | bigint)[],
+  resolverId: number,
+  resolution: Extract<
+    ClipCommentReportResolution,
+    "clip_deleted" | "owner_deleted"
+  >,
+  db: Prisma.TransactionClient = prisma,
+) {
+  const uniqueClipIds = [...new Set(clipIds.map((id) => BigInt(id)))];
+  if (uniqueClipIds.length === 0) return { count: 0 };
+
+  return db.clipCommentReport.updateMany({
+    where: {
+      resolvedAt: null,
+      comment: { clipId: { in: uniqueClipIds } },
+    },
     data: {
       resolvedAt: new Date(),
       resolvedById: BigInt(resolverId),

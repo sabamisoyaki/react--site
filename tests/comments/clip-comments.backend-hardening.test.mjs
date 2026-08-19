@@ -47,14 +47,75 @@ test("retryable Prisma transaction conflicts map to HTTP 409", () => {
   });
 });
 
-test("comment hardening migration closes reports on deletion", () => {
+test("comment hardening migration enforces complete report resolution states", () => {
   const migration = readFileSync(
     "prisma/migrations/20260809000000_harden_clip_comments/migration.sql",
     "utf8",
   );
+  const normalized = migration.replace(/\s+/g, " ");
 
-  assert.match(migration, /'comment_deleted'/);
-  assert.match(migration, /resolution" IN \('dismissed', 'comment_deleted'\)/);
+  assert.match(
+    normalized,
+    /"resolved_at" IS NULL AND "resolved_by_id" IS NULL AND "resolution" IS NULL/,
+  );
+  assert.match(
+    normalized,
+    /"resolved_at" IS NOT NULL AND "resolution" IS NOT NULL AND "resolution" IN \('dismissed', 'comment_deleted', 'clip_deleted', 'owner_deleted'\)/,
+  );
+  assert.doesNotMatch(
+    normalized,
+    /"resolved_at" IS NOT NULL AND "resolution" IN/,
+    "a nullable IN expression makes a PostgreSQL CHECK evaluate to UNKNOWN and pass",
+  );
+});
+
+test("comment migrations keep Prisma defaults and cascade indexes aligned", () => {
+  const schema = readFileSync("prisma/schema.prisma", "utf8");
+  const commentsMigration = readFileSync(
+    "prisma/migrations/20260726000000_add_clip_comments/migration.sql",
+    "utf8",
+  );
+  const reportsMigration = readFileSync(
+    "prisma/migrations/20260806010000_add_clip_comment_reports/migration.sql",
+    "utf8",
+  );
+
+  const commentModel = sourceSection(
+    schema,
+    "model ClipComment {",
+    "model ClipCommentReport {",
+  );
+  assert.match(
+    commentModel,
+    /updatedAt\s+DateTime\s+@default\(now\(\)\)\s+@updatedAt/,
+  );
+  assert.match(commentModel, /@@index\(\[clipId\]\)/);
+  assert.match(
+    commentsMigration,
+    /CREATE INDEX "clip_comments_clip_id_idx" ON "clip_comments"\("clip_id"\);/,
+  );
+  assert.match(
+    commentsMigration,
+    /"updated_at" TIMESTAMPTZ\(6\) NOT NULL DEFAULT CURRENT_TIMESTAMP/,
+  );
+  assert.match(commentsMigration, /WHERE deleted_at IS NULL;/);
+
+  const reportModel = sourceSection(
+    schema,
+    "model ClipCommentReport {",
+    "model Playlist {",
+  );
+  assert.match(reportModel, /@@unique\(\[commentId, reporterId\]\)/);
+  assert.match(reportModel, /@@index\(\[reporterId\]\)/);
+  assert.doesNotMatch(reportModel, /@@index\(\[commentId\]\)/);
+  assert.match(
+    reportsMigration,
+    /CREATE INDEX "clip_comment_reports_reporter_id_idx" ON "clip_comment_reports"\("reporter_id"\);/,
+  );
+  assert.doesNotMatch(
+    reportsMigration,
+    /CREATE INDEX "clip_comment_reports_comment_id_idx"/,
+  );
 });
 
 test("comment hardening migration trims JavaScript Unicode whitespace", () => {
@@ -65,16 +126,6 @@ test("comment hardening migration trims JavaScript Unicode whitespace", () => {
 
   assert.match(migration, /U&'\\0009.*\\00A0.*\\3000.*\\FEFF'/s);
   assert.doesNotMatch(migration, /char_length\(btrim\("body"\)\)/);
-});
-
-test("extension comment activity uses a monotonic database timestamp", () => {
-  const service = readFileSync("src/server/services/comments.ts", "utf8");
-
-  assert.match(
-    service,
-    /SET last_seen_at = GREATEST\(last_seen_at, statement_timestamp\(\)\)/,
-  );
-  assert.match(service, /expires_at > statement_timestamp\(\)/);
 });
 
 test("comment mutations use the common user -> clip -> comment lock order", () => {
@@ -114,7 +165,8 @@ test("comment mutations use the common user -> clip -> comment lock order", () =
     "export async function listClipCommentReports",
   );
   assertAppearsInOrder(report, [
-    "lockActiveUser",
+    "findActiveOwnerById",
+    "lockUsersByIdOrder",
     "lockClipCommentForModeration",
     "createClipCommentReport",
   ]);

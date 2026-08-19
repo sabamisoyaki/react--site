@@ -1,3 +1,4 @@
+import { parseKeywords, rankByKeywords } from "@/lib/search/utils";
 import { prisma } from "@/server/db";
 import { resolveClipRange } from "@/server/domain/clips";
 import {
@@ -11,12 +12,35 @@ import * as repo from "@/server/repositories/clips";
 import { resolveClipCommentReportsForClips } from "@/server/repositories/comments";
 import { lockUsersByIdOrder } from "@/server/repositories/users";
 
-export function listClips(opts: Parameters<typeof repo.list>[0]) {
-  return repo.list(opts);
+export async function listClips(opts: Parameters<typeof repo.list>[0]) {
+  const result = await repo.list(opts);
+  const keywords = parseKeywords(opts?.title ?? "");
+  return {
+    ...result,
+    data: rankByKeywords(result.data, keywords, (clip) => [
+      clip.title,
+      clip.name,
+      clip.epnum,
+    ]),
+  };
 }
 
-export function listClipsCursor(opts: Parameters<typeof repo.listCursor>[0]) {
-  return repo.listCursor(opts);
+export async function listClipsCursor(
+  opts: Parameters<typeof repo.listCursor>[0],
+) {
+  const result = await repo.listCursor(opts);
+  // nextCursor はリポジトリが並べ替え前の順序から作っている。
+  // ここでの並べ替えはページ内で閉じているのでカーソルには影響しない。
+  const keywords = parseKeywords(opts?.title ?? "");
+  return {
+    ...result,
+    data: rankByKeywords(result.data, keywords, (clip) => [
+      clip.title,
+      clip.name,
+      clip.epnum,
+      clip.vod?.name,
+    ]),
+  };
 }
 
 export async function getClip(id: number) {

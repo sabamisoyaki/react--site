@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_QUERY_LENGTH } from "@/lib/search/utils";
+
 import {
   cursorPaginationQuerySchema,
   hardDeleteQuerySchema,
@@ -16,14 +18,14 @@ export const clipListQuerySchema = paginationQuerySchema
   .extend({
     userId: idSchema.optional(),
     vodId: idSchema.optional(),
-    title: z.string().optional(),
+    title: z.string().max(MAX_QUERY_LENGTH).optional(),
   });
 
 export const clipCursorListQuerySchema = cursorPaginationQuerySchema
   .extend({
     userId: idSchema.optional(),
     vodId: idSchema.optional(),
-    title: z.string().optional(),
+    title: z.string().max(MAX_QUERY_LENGTH).optional(),
   })
   .strict();
 

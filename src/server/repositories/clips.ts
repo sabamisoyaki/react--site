@@ -1,6 +1,25 @@
 import type { Prisma } from "@prisma/client";
+import { parseKeywords } from "@/lib/search/utils";
 import { prisma } from "@/server/db";
 import { type CursorPayload, encodeCursor } from "@/server/http/pagination";
+
+/**
+ * 検索語を空白で分割し、各キーワードが title / name / epnum / VOD 名の
+ * いずれかに一致すること（キーワード同士は AND）を求める条件に変換する。
+ * 並び順のスコアリングはサービス層が行う。
+ */
+export function buildClipKeywordConditions(
+  rawQuery?: string,
+): Prisma.ClipWhereInput[] {
+  return parseKeywords(rawQuery ?? "").map((keyword) => ({
+    OR: [
+      { title: { contains: keyword, mode: "insensitive" } },
+      { name: { contains: keyword, mode: "insensitive" } },
+      { epnum: { contains: keyword, mode: "insensitive" } },
+      { vod: { name: { contains: keyword, mode: "insensitive" } } },
+    ],
+  }));
+}
 
 export function findById(id: number) {
   return prisma.clip.findFirst({ where: { id, deletedAt: null } });
@@ -39,8 +58,8 @@ export async function list(
   if (!opts.includeDeleted) where.deletedAt = null;
   if (opts.userId != null) where.userId = opts.userId;
   if (opts.vodId != null) where.vodId = opts.vodId;
-  if (opts.title && opts.title.trim() !== "")
-    where.title = { contains: opts.title.trim(), mode: "insensitive" };
+  const keywordConditions = buildClipKeywordConditions(opts.title);
+  if (keywordConditions.length > 0) where.AND = keywordConditions;
   const [total, data] = await Promise.all([
     prisma.clip.count({ where }),
     prisma.clip.findMany({
@@ -71,9 +90,8 @@ export async function listCursor(
   if (!opts.includeDeleted) where.deletedAt = null;
   if (opts.userId != null) where.userId = opts.userId;
   if (opts.vodId != null) where.vodId = opts.vodId;
-  if (opts.title && opts.title.trim() !== "") {
-    where.title = { contains: opts.title.trim(), mode: "insensitive" };
-  }
+  const keywordConditions = buildClipKeywordConditions(opts.title);
+  if (keywordConditions.length > 0) where.AND = keywordConditions;
   if (cursorDate && cursorId != null && Number.isFinite(cursorId)) {
     where.OR = [
       { createdAt: { lt: cursorDate } },

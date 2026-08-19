@@ -45,3 +45,26 @@ export function scoreFields(
   }
   return total;
 }
+
+/**
+ * 取得済みページをスコア降順に並べ替える。同点は元の順序を保つ。
+ *
+ * 並べ替えはページ内で閉じている。カーソルは **並べ替える前** の順序から
+ * 作ること（リポジトリ層が返す nextCursor）。並べ替え後の末尾から作ると、
+ * ページ間で取りこぼしや重複が起きる。
+ */
+export function rankByKeywords<T>(
+  rows: readonly T[],
+  keywords: string[],
+  selectFields: (row: T) => (string | null | undefined)[],
+): T[] {
+  if (keywords.length === 0) return [...rows];
+  return rows
+    .map((row, index) => ({
+      row,
+      index,
+      score: scoreFields(selectFields(row), keywords),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.row);
+}

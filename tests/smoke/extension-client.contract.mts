@@ -17,6 +17,9 @@
  *   2. サイトを起動     : npm run build && npx next start   (localhost:3000)
  *   3. 拡張リポのパス   : EXT_REPO=H:/movieClipExtension    (既定値も同じ)
  *
+ * CORS の検証に使う拡張オリジンは .env.local の CLIP_API_ALLOWED_ORIGINS から
+ * 導出する。SMOKE_EXTENSION_ORIGIN=chrome-extension://<id> で上書きできる。
+ *
  * ポート 3000 固定なのは偶然ではなく契約で、拡張の src/api.js が
  * http://localhost:3000/api/ をハードコードしている。そこも下で検証する。
  */
@@ -28,6 +31,41 @@ const EXT_REPO = (process.env.EXT_REPO ?? "H:/movieClipExtension").replace(
   /[\\/]+$/,
   "",
 );
+
+// ---------------------------------------------------------------------------
+// CORS 検証に使う拡張オリジン。
+//
+// Example.env.local は「実際の拡張IDを登録する」よう案内しているため、テスト側で
+// ID を固定すると、正しく設定された環境ほど 403 になって偽の赤が出る。
+// 設定から拾い、SMOKE_EXTENSION_ORIGIN で上書きもできるようにする。
+//
+// なお参照するのはこのプロセスが読んだ .env.local で、サーバーは自分の env を
+// 起動時に読んでいる。両者がズレていれば、その不一致自体が失敗として出る。
+// ---------------------------------------------------------------------------
+const EXTENSION_ORIGIN_PREFIX = "chrome-extension://";
+// chrome-extension://* が設定されている場合に使う合成ID（Chrome の拡張IDは 32 文字）。
+const SYNTHETIC_EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
+
+function resolveExtensionOrigin(): { origin: string; source: string } | null {
+  const explicit = process.env.SMOKE_EXTENSION_ORIGIN?.trim();
+  if (explicit) return { origin: explicit, source: "SMOKE_EXTENSION_ORIGIN" };
+
+  const configured = (process.env.CLIP_API_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.startsWith(EXTENSION_ORIGIN_PREFIX));
+
+  if (configured.length === 0) return null;
+  if (configured.includes(`${EXTENSION_ORIGIN_PREFIX}*`)) {
+    return {
+      origin: `${EXTENSION_ORIGIN_PREFIX}${SYNTHETIC_EXTENSION_ID}`,
+      source: `${EXTENSION_ORIGIN_PREFIX}* に対する合成ID`,
+    };
+  }
+  return { origin: configured[0], source: "CLIP_API_ALLOWED_ORIGINS" };
+}
+
+const extensionOrigin = resolveExtensionOrigin();
 
 const entry = `${EXT_REPO}/src/background/comments.js`;
 if (!existsSync(entry)) {
@@ -97,6 +135,7 @@ const { prisma } = await import("@/server/db");
 
 let pass = 0;
 let fail = 0;
+let skipped = 0;
 const failures: string[] = [];
 
 function check(name: string, cond: boolean, detail?: unknown) {
@@ -111,6 +150,15 @@ function check(name: string, cond: boolean, detail?: unknown) {
 }
 const eq = (n: string, a: unknown, e: unknown) =>
   check(n, Object.is(a, e), { actual: a, expected: e });
+
+/**
+ * この設定では検証できない項目。赤にも緑にもしない。
+ * 環境依存の前提が満たせないだけで、契約違反ではないため。
+ */
+function skip(name: string, reason: string) {
+  skipped++;
+  console.log(`  - ${name}（スキップ: ${reason}）`);
+}
 
 const token = randomBytes(32).toString("base64url");
 const instanceId = randomUUID();
@@ -139,6 +187,13 @@ try {
       "src/api.js の API_URL がサイトの実オリジンを指す",
       extApi.API_URL,
       "http://localhost:3000/api/",
+    );
+    // CORS 検証で使う値を早めに出す。到達不能で落ちた実行でも、どの設定を
+    // 読んだのかが分かるようにしておく。
+    console.log(
+      extensionOrigin
+        ? `  CORS 検証に使う拡張オリジン: ${extensionOrigin.origin}（${extensionOrigin.source}）`
+        : "  CORS 検証に使う拡張オリジン: 未解決（chrome-extension:// の設定が無い）",
     );
     // ここが食い違うと以降が全部ネットワークエラーになるので先に潰しておく。
     const reachable = await fetch(`${extApi.SITE_ORIGIN}/api/v1/clips`, {
@@ -414,34 +469,43 @@ try {
   {
     // 拡張の fetch には Chrome が Origin: chrome-extension://<id> を付ける。
     // Node の fetch は Origin を送らないため、この経路だけは生 fetch で当てる。
-    const withExtOrigin = await fetch(
-      `${extApi.SITE_ORIGIN}/api/extension/clips/${clipId}/comments?extensionInstanceId=${instanceId}`,
-      {
-        headers: {
-          authorization: `Bearer ${token}`,
-          origin: "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
-        },
-      },
-    );
-    check(
-      "chrome-extension:// オリジンが許可されている",
-      withExtOrigin.status !== 403,
-      `${withExtOrigin.status} / CLIP_API_ALLOWED_ORIGINS を確認する`,
-    );
+    const url = `${extApi.SITE_ORIGIN}/api/extension/clips/${clipId}/comments?extensionInstanceId=${instanceId}`;
+    const withOrigin = (origin: string) =>
+      fetch(url, {
+        headers: { authorization: `Bearer ${token}`, origin },
+      });
+
+    if (extensionOrigin === null) {
+      skip(
+        "chrome-extension:// オリジンが許可されている",
+        "CLIP_API_ALLOWED_ORIGINS に chrome-extension:// のエントリが無い" +
+          "（SMOKE_EXTENSION_ORIGIN で指定できる）",
+      );
+    } else {
+      const allowed = await withOrigin(extensionOrigin.origin);
+
+      // status !== 403 だけだと 401/404/500 も「許可」と読めてしまう。
+      // この生 fetch はブラウザ専用経路の代替なので、Chrome が実際に
+      // レスポンスを読める条件（成功 + ACAO 一致）まで見る。
+      eq("拡張オリジンでも 200 が返る", allowed.status, 200);
+      eq(
+        "Access-Control-Allow-Origin が送ったオリジンと一致する",
+        allowed.headers.get("access-control-allow-origin"),
+        extensionOrigin.origin,
+      );
+      eq(
+        "資格情報付きリクエストを許可している",
+        allowed.headers.get("access-control-allow-credentials"),
+        "true",
+      );
+    }
+
+    const denied = await withOrigin("https://evil.example");
+    eq("無関係なオリジンは 403", denied.status, 403);
     eq(
-      "無関係なオリジンは 403",
-      (
-        await fetch(
-          `${extApi.SITE_ORIGIN}/api/extension/clips/${clipId}/comments?extensionInstanceId=${instanceId}`,
-          {
-            headers: {
-              authorization: `Bearer ${token}`,
-              origin: "https://evil.example",
-            },
-          },
-        )
-      ).status,
-      403,
+      "拒否したオリジンには ACAO を返さない",
+      denied.headers.get("access-control-allow-origin"),
+      null,
     );
   }
 
@@ -494,7 +558,8 @@ try {
     console.log(`  linked_extensions を物理削除: ${linkedId}`);
   }
   await prisma.$disconnect();
-  console.log(`\n==== ${pass} passed, ${fail} failed ====`);
+  const skipNote = skipped ? `, ${skipped} skipped` : "";
+  console.log(`\n==== ${pass} passed, ${fail} failed${skipNote} ====`);
   if (failures.length) for (const f of failures) console.log("  -", f);
   process.exitCode = fail === 0 ? 0 : 1;
 }

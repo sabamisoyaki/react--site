@@ -117,9 +117,11 @@ test("comment migrations keep Prisma defaults and cascade indexes aligned", () =
   assert.match(reportModel, /@@unique\(\[commentId, reporterId\]\)/);
   assert.match(reportModel, /@@index\(\[reporterId\]\)/);
   assert.doesNotMatch(reportModel, /@@index\(\[commentId\]\)/);
+  // IF EXISTS 付きを要求する。CI に DB が無くマイグレーションはデプロイが初回実行に
+  // なるため、対象が無いだけで落ちる書き方に戻らないよう固定する。
   assert.match(
     hardeningMigration,
-    /DROP INDEX "clip_comment_reports_comment_id_idx";/,
+    /DROP INDEX IF EXISTS "clip_comment_reports_comment_id_idx";/,
   );
   assert.match(
     hardeningMigration.replace(/\s+/g, " "),

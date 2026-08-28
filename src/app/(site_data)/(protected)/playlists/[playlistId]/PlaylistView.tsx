@@ -16,6 +16,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useEffect, useMemo, useState } from "react";
 import { clearPlaybackClipId } from "@/lib/clips/playback";
+import { createHandoffRequestId } from "@/lib/extension/handoffRequest";
 import SortableClipItem from "./SortableClipItem";
 
 interface Clip {
@@ -113,7 +114,13 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
             // 解決しうる（cookie の寿命は 1 時間）。
             clearPlaybackClipId();
             localStorage.setItem("playQueue", JSON.stringify(clips));
-            window.postMessage({ type: "PLAY_PLAYLIST_START" });
+            window.postMessage(
+              {
+                type: "PLAY_PLAYLIST_START",
+                requestId: createHandoffRequestId(),
+              },
+              window.location.origin,
+            );
           }}
           className="cursor-pointer rounded-full bg-accent px-5 py-2 text-[13.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
         >

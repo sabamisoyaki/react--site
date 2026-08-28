@@ -62,7 +62,9 @@ CREATE INDEX "clip_comment_reports_resolved_by_id_idx"
 
 -- The unique (comment_id, reporter_id) index already covers comment lookups.
 -- Replace the redundant standalone index with one that supports reporter cascades.
-DROP INDEX "clip_comment_reports_comment_id_idx";
+-- IF EXISTS で守る。この index を作る 20260806 は一度書き換えられて戻った経緯があり、
+-- CI に DB が無いためマイグレーションの実行検証はデプロイが初回になる。
+DROP INDEX IF EXISTS "clip_comment_reports_comment_id_idx";
 
 CREATE INDEX "clip_comment_reports_reporter_id_idx"
   ON "clip_comment_reports"("reporter_id");

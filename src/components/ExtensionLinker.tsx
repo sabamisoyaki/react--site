@@ -13,6 +13,32 @@ type ExtensionAuthStatus = {
   extensionInstanceId: string | null;
 };
 
+const UNAVAILABLE: ExtensionAuthStatus = {
+  available: false,
+  loggedIn: false,
+  extensionInstanceId: null,
+};
+
+declare global {
+  interface Window {
+    __CLIP_EXTENSION_PRESENT__?: boolean;
+  }
+}
+
+/**
+ * 拡張が入っているかを同期的に判定する。
+ *
+ * 拡張は extension_present.js を MAIN world / document_start で流し込み、この
+ * フラグを立てる。React の useEffect は必ずその後に走るので、ここでは待たずに読める。
+ * manifest が対象にしないオリジン（本番など）ではフラグが立たないため、
+ * 応答しない相手に対して postMessage のタイムアウトを積む必要が無くなる。
+ */
+function isExtensionPresent(): boolean {
+  return (
+    typeof window !== "undefined" && window.__CLIP_EXTENSION_PRESENT__ === true
+  );
+}
+
 function createRequestId() {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -55,16 +81,24 @@ function checkExtensionAuthStatus(): Promise<ExtensionAuthStatus> {
   });
 }
 
-export async function checkExtensionAuthStatusWithRetry(
-  check: () => Promise<ExtensionAuthStatus> = checkExtensionAuthStatus,
-  wait: (delayMs: number) => Promise<void> = (delayMs) =>
-    new Promise((resolve) => setTimeout(resolve, delayMs)),
-): Promise<ExtensionAuthStatus> {
-  let status: ExtensionAuthStatus = {
-    available: false,
-    loggedIn: false,
-    extensionInstanceId: null,
-  };
+type RetryDeps = {
+  check?: () => Promise<ExtensionAuthStatus>;
+  wait?: (delayMs: number) => Promise<void>;
+  isPresent?: () => boolean;
+};
+
+/**
+ * content script の注入が hydration に間に合わない場合に備えてリトライする。
+ * ただし拡張自体が入っていないなら 1 回も問い合わせない（タイマーを積まない）。
+ */
+export async function checkExtensionAuthStatusWithRetry({
+  check = checkExtensionAuthStatus,
+  wait = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+  isPresent = isExtensionPresent,
+}: RetryDeps = {}): Promise<ExtensionAuthStatus> {
+  if (!isPresent()) return UNAVAILABLE;
+
+  let status: ExtensionAuthStatus = UNAVAILABLE;
 
   for (let attempt = 0; attempt < CHECK_ATTEMPTS; attempt += 1) {
     status = await check();

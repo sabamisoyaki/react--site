@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { acceptsHandoffResult } from "@/lib/extension/handoffRequest";
 
 const RESULT_TYPE = "EXTENSION_PLAYBACK_HANDOFF_RESULT";
 const DISPLAY_MS = 6000;
@@ -41,6 +42,9 @@ export function ExtensionPlaybackHandoffStatus() {
       if (!data || typeof data !== "object" || data.type !== RESULT_TYPE) {
         return;
       }
+      // 別タブ・別リクエストの結果を「いま押したクリップの結果」として
+      // 出さないよう、自分が発行した requestId の結果だけを受ける。
+      if (!acceptsHandoffResult(data.requestId)) return;
 
       const ok = data.ok === true;
       const reason =

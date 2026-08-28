@@ -150,6 +150,8 @@ export function openClipPlayback(clip: ClipPlayback): boolean {
   document.cookie = `endtime=${encodeURIComponent(String(endtime))}; path=/; max-age=3600; secure`;
   // biome-ignore lint/suspicious/noDocumentCookie: The player integration currently reads these legacy cookies.
   document.cookie = `url=${encodeURIComponent(url)}; path=/; max-age=3600; secure`;
+  // biome-ignore lint/suspicious/noDocumentCookie: Extension integration validates the playback service.
+  document.cookie = `service=${encodeURIComponent(service)}; path=/; max-age=3600; secure`;
 
   if (hasClipId) {
     // biome-ignore lint/suspicious/noDocumentCookie: Extension integration reads this cookie.

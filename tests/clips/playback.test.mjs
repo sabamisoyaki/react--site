@@ -82,6 +82,7 @@ test("openClipPlayback writes the clipId cookie and event detail when id is vali
   try {
     assert.equal(openClipPlayback({ ...supportedClip, id: 42 }), true);
     assert.equal(dom.cookies.get("clipId"), "42");
+    assert.equal(dom.cookies.get("service"), "NETFLIX");
     assert.equal(dom.events.length, 1);
     assert.equal(dom.events[0].detail.clipId, 42);
     assert.deepEqual(dom.opened, [

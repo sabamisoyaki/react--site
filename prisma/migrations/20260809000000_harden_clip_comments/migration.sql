@@ -1,3 +1,10 @@
+-- The expiry migration was already applied before its DEFAULT was added to the
+-- migration file. Keep the applied migration immutable and repair the catalog
+-- in this still-pending migration instead.
+ALTER TABLE "linked_extensions"
+  ALTER COLUMN "expires_at"
+  SET DEFAULT (now() + interval '90 days');
+
 -- Comment write idempotency and per-user rate-limit lookup support.
 ALTER TABLE "clip_comments"
   ADD COLUMN "client_request_id" UUID;
@@ -7,6 +14,10 @@ CREATE UNIQUE INDEX "clip_comments_user_id_client_request_id_key"
 
 CREATE INDEX "clip_comments_user_id_created_at_idx"
   ON "clip_comments"("user_id", "created_at");
+
+-- Support clip foreign-key cascades across both active and soft-deleted comments.
+CREATE INDEX "clip_comments_clip_id_idx"
+  ON "clip_comments"("clip_id");
 
 -- Keep invariants valid even when data is written outside the HTTP service.
 ALTER TABLE "clip_comments"
@@ -48,3 +59,10 @@ ALTER TABLE "clip_comment_reports"
 
 CREATE INDEX "clip_comment_reports_resolved_by_id_idx"
   ON "clip_comment_reports"("resolved_by_id");
+
+-- The unique (comment_id, reporter_id) index already covers comment lookups.
+-- Replace the redundant standalone index with one that supports reporter cascades.
+DROP INDEX "clip_comment_reports_comment_id_idx";
+
+CREATE INDEX "clip_comment_reports_reporter_id_idx"
+  ON "clip_comment_reports"("reporter_id");

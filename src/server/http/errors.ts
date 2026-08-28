@@ -72,6 +72,16 @@ export class ConflictError extends HttpError {
   }
 }
 
+export class TooManyRequestsError extends HttpError {
+  constructor(
+    message = "Too many requests",
+    code = "RATE_LIMITED",
+    details?: unknown,
+  ) {
+    super(429, message, code, details);
+  }
+}
+
 type ToErrorPayloadOptions = {
   exposeDetails?: boolean;
 };
@@ -150,6 +160,16 @@ function mapPrismaError(err: unknown): HttpError | null {
         prismaCode: err.code,
         meta: err.meta,
       });
+    case "P2034":
+      return new ConflictError(
+        "Transaction conflict; retry the request",
+        "TRANSACTION_CONFLICT",
+        {
+          prismaCode: err.code,
+          retryable: true,
+          meta: err.meta,
+        },
+      );
     default:
       return null;
   }

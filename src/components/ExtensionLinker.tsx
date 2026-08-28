@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { linkExtensionToCurrentUser } from "@/lib/extension/client";
 
 const CHECK_TIMEOUT_MS = 1000;
+const CHECK_ATTEMPTS = 3;
+const CHECK_RETRY_DELAY_MS = 250;
 
 type ExtensionAuthStatus = {
   available: boolean;
@@ -53,17 +55,41 @@ function checkExtensionAuthStatus(): Promise<ExtensionAuthStatus> {
   });
 }
 
+export async function checkExtensionAuthStatusWithRetry(
+  check: () => Promise<ExtensionAuthStatus> = checkExtensionAuthStatus,
+  wait: (delayMs: number) => Promise<void> = (delayMs) =>
+    new Promise((resolve) => setTimeout(resolve, delayMs)),
+): Promise<ExtensionAuthStatus> {
+  let status: ExtensionAuthStatus = {
+    available: false,
+    loggedIn: false,
+    extensionInstanceId: null,
+  };
+
+  for (let attempt = 0; attempt < CHECK_ATTEMPTS; attempt += 1) {
+    status = await check();
+    if (status.available) return status;
+    if (attempt < CHECK_ATTEMPTS - 1) await wait(CHECK_RETRY_DELAY_MS);
+  }
+
+  return status;
+}
+
 export function ExtensionLinker() {
   useEffect(() => {
     async function maybeLink() {
-      const status = await checkExtensionAuthStatus();
-      if (!status.available || status.loggedIn) return;
-      if (!status.extensionInstanceId) return;
+      try {
+        const status = await checkExtensionAuthStatusWithRetry();
+        if (!status.available || status.loggedIn) return;
+        if (!status.extensionInstanceId) return;
 
-      await linkExtensionToCurrentUser(status.extensionInstanceId);
+        await linkExtensionToCurrentUser(status.extensionInstanceId);
+      } catch (error) {
+        console.warn("Failed to link browser extension", error);
+      }
     }
 
-    maybeLink();
+    void maybeLink();
   }, []);
 
   return null;

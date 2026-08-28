@@ -1,4 +1,5 @@
 import type { Clip, Prisma, Vod } from "@prisma/client";
+import { parseKeywords } from "@/lib/search/utils";
 import { prisma } from "@/server/db";
 import { type CursorPayload, encodeCursor } from "@/server/http/pagination";
 
@@ -28,6 +29,18 @@ export function findWithClips(id: number) {
   });
 }
 
+/**
+ * 検索語を空白で分割し、各キーワードが name に一致すること（キーワード同士は AND）を
+ * 求める条件に変換する。並び順のスコアリングはサービス層が行う。
+ */
+export function buildPlaylistKeywordConditions(
+  rawQuery?: string,
+): Prisma.PlaylistWhereInput[] {
+  return parseKeywords(rawQuery ?? "").map((keyword) => ({
+    name: { contains: keyword, mode: "insensitive" as const },
+  }));
+}
+
 export async function list(
   opts: {
     skip?: number;
@@ -45,8 +58,8 @@ export async function list(
   const where: Prisma.PlaylistWhereInput = {};
   if (!opts.includeDeleted) where.deletedAt = null;
   if (opts.userId != null) where.userId = opts.userId;
-  if (opts.name && opts.name.trim() !== "")
-    where.name = { contains: opts.name.trim(), mode: "insensitive" };
+  const keywordConditions = buildPlaylistKeywordConditions(opts.name);
+  if (keywordConditions.length > 0) where.AND = keywordConditions;
   const [total, data] = await Promise.all([
     prisma.playlist.count({ where }),
     prisma.playlist.findMany({
@@ -75,9 +88,8 @@ export async function listCursor(
 
   if (!opts.includeDeleted) where.deletedAt = null;
   if (opts.userId != null) where.userId = opts.userId;
-  if (opts.name && opts.name.trim() !== "") {
-    where.name = { contains: opts.name.trim(), mode: "insensitive" };
-  }
+  const keywordConditions = buildPlaylistKeywordConditions(opts.name);
+  if (keywordConditions.length > 0) where.AND = keywordConditions;
   if (cursorDate && cursorId != null && Number.isFinite(cursorId)) {
     where.OR = [
       { createdAt: { lt: cursorDate } },

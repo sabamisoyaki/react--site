@@ -34,7 +34,20 @@ const instanceId = randomUUID();
 const authHash = createHash("sha256").update(token).digest("hex");
 
 let linkedId: bigint | null = null;
+let fixtureClipId: bigint | null = null;
+let fixtureUserId: bigint | null = null;
 const createdCommentIds: bigint[] = [];
+
+async function cleanupStep(label: string, operation: () => Promise<void>) {
+  try {
+    await operation();
+  } catch (error) {
+    fail++;
+    const message = `${label}: ${(error as Error).message}`;
+    failures.push(message);
+    console.error(`  後始末失敗 ${message}`);
+  }
+}
 
 async function req(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
@@ -52,19 +65,46 @@ async function req(path: string, init: RequestInit = {}) {
 }
 
 try {
-  const clip = await prisma.clip.findFirstOrThrow({
+  const vod = await prisma.vod.findFirstOrThrow({
     where: { deletedAt: null },
-    select: { id: true, userId: true },
+    select: { id: true },
     orderBy: { id: "asc" },
   });
+  const fixtureUser = await prisma.user.create({
+    data: {
+      name: "extension-comment-smoke-user",
+      email: `extension-comment-smoke-${Date.now()}-${randomUUID()}@example.invalid`,
+    },
+    select: { id: true },
+  });
+  fixtureUserId = fixtureUser.id;
+  const clip = await prisma.clip.create({
+    data: {
+      userId: fixtureUser.id,
+      vodId: vod.id,
+      name: `拡張コメントスモーク ${randomUUID()}`,
+      title: "Extension comment smoke fixture",
+      startMs: 0,
+      endMs: 60_000,
+      url: "https://www.netflix.com/watch/1",
+    },
+    select: { id: true, userId: true },
+  });
+  fixtureClipId = clip.id;
   const clipId = Number(clip.id);
 
+  const linkedFixtureNow = Date.now();
   const linked = await prisma.linkedExtension.create({
     data: {
       userId: clip.userId,
       extensionInstanceId: instanceId,
       extensionAuthHash: authHash,
-      expiresAt: new Date(Date.now() + 86_400_000),
+      // This intentionally stays below the adapter's documented nine-hour
+      // timestamptz skew. GET authentication and POST's final CAS must agree.
+      expiresAt: new Date(linkedFixtureNow + 60 * 60 * 1000),
+      // Avoid the database-clock default here: the production link path writes
+      // last_seen_at through the same Prisma Date parameter coordinate.
+      lastSeenAt: new Date(linkedFixtureNow - 60_000),
     },
     select: { id: true, lastSeenAt: true },
   });
@@ -193,9 +233,11 @@ try {
     );
 
     const beforeGet = after.lastSeenAt;
-    await req(
+    const getForActivity = await req(
       `/api/extension/clips/${clipId}/comments?extensionInstanceId=${instanceId}`,
     );
+    // 401/500 でも lastSeenAt は動かないので、GET が成功したことを先に断定する
+    eq("活動更新の確認に使う GET が 200", getForActivity.status, 200);
     const afterGet = await prisma.linkedExtension.findUniqueOrThrow({
       where: { id: linked.id },
       select: { lastSeenAt: true },
@@ -228,20 +270,17 @@ try {
     if (posted.json.comment?.id)
       createdCommentIds.push(BigInt(posted.json.comment.id));
 
-    eq(
-      "endMs ちょうども 201（両端を含む）",
-      (
-        await req(`/api/extension/clips/${clipId}/comments`, {
-          method: "POST",
-          body: JSON.stringify({
-            extensionInstanceId: instanceId,
-            body: "終端",
-            atMs: range.endMs,
-          }),
-        })
-      ).status,
-      201,
-    );
+    const atEnd = await req(`/api/extension/clips/${clipId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({
+        extensionInstanceId: instanceId,
+        body: "終端",
+        atMs: range.endMs,
+      }),
+    });
+    eq("endMs ちょうども 201（両端を含む）", atEnd.status, 201);
+    if (atEnd.json.comment?.id)
+      createdCommentIds.push(BigInt(atEnd.json.comment.id));
 
     const oob = await req(`/api/extension/clips/${clipId}/comments`, {
       method: "POST",
@@ -254,20 +293,17 @@ try {
     eq("範囲外は 400", oob.status, 400);
     eq("code が AT_MS_OUT_OF_RANGE", oob.json.code, "AT_MS_OUT_OF_RANGE");
 
-    eq(
-      "atMs: null も 201",
-      (
-        await req(`/api/extension/clips/${clipId}/comments`, {
-          method: "POST",
-          body: JSON.stringify({
-            extensionInstanceId: instanceId,
-            body: "全体宛て",
-            atMs: null,
-          }),
-        })
-      ).status,
-      201,
-    );
+    const nullAnchor = await req(`/api/extension/clips/${clipId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({
+        extensionInstanceId: instanceId,
+        body: "全体宛て",
+        atMs: null,
+      }),
+    });
+    eq("atMs: null も 201", nullAnchor.status, 201);
+    if (nullAnchor.json.comment?.id)
+      createdCommentIds.push(BigInt(nullAnchor.json.comment.id));
 
     // v1 で付けた atMs も拡張API から見える（両API が同じ列を見ている）
     const viaV1 = await prisma.clipComment.create({
@@ -340,16 +376,36 @@ try {
 } finally {
   console.log("\n後始末");
   if (createdCommentIds.length) {
-    const r = await prisma.clipComment.deleteMany({
-      where: { id: { in: createdCommentIds } },
+    await cleanupStep("コメントの物理削除", async () => {
+      const r = await prisma.clipComment.deleteMany({
+        where: { id: { in: createdCommentIds } },
+      });
+      console.log(`  コメントを物理削除: ${r.count} 件`);
     });
-    console.log(`  コメントを物理削除: ${r.count} 件`);
   }
   if (linkedId != null) {
-    await prisma.linkedExtension.delete({ where: { id: linkedId } });
-    console.log(`  linked_extensions を物理削除: ${linkedId}`);
+    const id = linkedId;
+    await cleanupStep("linked_extensionsの物理削除", async () => {
+      await prisma.linkedExtension.delete({ where: { id } });
+      console.log(`  linked_extensions を物理削除: ${id}`);
+    });
   }
-  await prisma.$disconnect();
+  if (fixtureClipId != null) {
+    const id = fixtureClipId;
+    await cleanupStep("専用クリップの物理削除", async () => {
+      await prisma.clipComment.deleteMany({ where: { clipId: id } });
+      await prisma.clip.delete({ where: { id } });
+      console.log(`  専用クリップを物理削除: ${id}`);
+    });
+  }
+  if (fixtureUserId != null) {
+    const id = fixtureUserId;
+    await cleanupStep("専用ユーザーの物理削除", async () => {
+      await prisma.user.delete({ where: { id } });
+      console.log(`  専用ユーザーを物理削除: ${id}`);
+    });
+  }
+  await cleanupStep("Prisma切断", () => prisma.$disconnect());
   console.log(`\n==== ${pass} passed, ${fail} failed ====`);
   if (failures.length) for (const f of failures) console.log("  -", f);
   process.exitCode = fail === 0 ? 0 : 1;

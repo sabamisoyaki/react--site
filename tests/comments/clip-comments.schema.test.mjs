@@ -1,9 +1,12 @@
 // biome-ignore-all lint/security/noSecrets: Schema names and Japanese fixtures are false positives.
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-// tsconfig paths を解決するため tsx 経由で読み込む（test:comments を参照）
+import { sourceSection } from "../helpers/source.mjs";
+
+// tsconfig paths を解決するため tsx 経由で読み込む（npm test は全ファイルを tsx で回す）
 const {
   CLIP_COMMENT_REPORT_REASONS,
   clipCommentBodySchema,
@@ -12,6 +15,8 @@ const {
   clipCommentListQuerySchema,
   clipCommentParamSchema,
   clipCommentReportCreateBodySchema,
+  clipCommentReportListQuerySchema,
+  clipCommentReportsResolveBodySchema,
 } = await import("../../src/server/schemas/comments.schema.ts");
 const { extensionCommentCreateBodySchema } = await import(
   "../../src/server/schemas/extension.schema.ts"
@@ -35,6 +40,27 @@ test("clipCommentCreateBodySchema", async (t) => {
     assert.equal(schema.safeParse({ body: "a".repeat(501) }).success, false);
   });
 
+  await t.test(
+    "body limit counts Unicode code points, not UTF-16 units",
+    () => {
+      const accepted = schema.safeParse({ body: "😀".repeat(500) });
+      assert.equal(accepted.success, true);
+      assert.equal(accepted.data.body, "😀".repeat(500));
+      assert.equal(schema.safeParse({ body: "😀".repeat(501) }).success, false);
+    },
+  );
+
+  await t.test("body limit is checked before trim", () => {
+    assert.equal(
+      schema.safeParse({ body: ` ${"a".repeat(499)}` }).success,
+      true,
+    );
+    assert.equal(
+      schema.safeParse({ body: ` ${"a".repeat(500)}` }).success,
+      false,
+    );
+  });
+
   await t.test("body is trimmed", () => {
     const result = schema.safeParse({ body: "  hello  " });
     assert.equal(result.success, true);
@@ -44,6 +70,16 @@ test("clipCommentCreateBodySchema", async (t) => {
   await t.test("body empty after trim", () => {
     assert.equal(schema.safeParse({ body: "   " }).success, false);
   });
+
+  await t.test(
+    "body containing NUL is rejected before reaching PostgreSQL",
+    () => {
+      assert.equal(
+        schema.safeParse({ body: "before\u0000after" }).success,
+        false,
+      );
+    },
+  );
 
   await t.test("newlines are preserved", () => {
     const result = schema.safeParse({ body: "一行目\n二行目" });
@@ -78,6 +114,20 @@ test("clipCommentCreateBodySchema", async (t) => {
     assert.equal(schema.safeParse({ body: "x", atMs: -1 }).success, false);
     assert.equal(schema.safeParse({ body: "x", atMs: 1.5 }).success, false);
     assert.equal(schema.safeParse({ body: "x", atMs: "10" }).success, false);
+  });
+
+  await t.test("clientRequestId は任意の UUID", () => {
+    assert.equal(
+      schema.safeParse({
+        body: "x",
+        clientRequestId: "550e8400-e29b-41d4-a716-446655440000",
+      }).success,
+      true,
+    );
+    assert.equal(
+      schema.safeParse({ body: "x", clientRequestId: "retry-1" }).success,
+      false,
+    );
   });
 
   await t.test("extensionInstanceId is not accepted here", () => {
@@ -125,7 +175,24 @@ test("clip comment body rules are shared with the extension API", async (t) => {
       extensionInstanceId: uuid,
       body: raw,
     });
-    assert.equal(site.data, extension.data.body);
+    // 両方が失敗すると data が両方 undefined になり、同値比較だけでは素通りする。
+    // 期待値そのものを固定して、両APIから trim が消えた場合も落ちるようにする。
+    assert.equal(site.success, true);
+    assert.equal(extension.success, true);
+    assert.equal(site.data, "hello");
+    assert.equal(extension.data.body, "hello");
+  });
+
+  await t.test("both reject NUL", () => {
+    const value = "comment\u0000body";
+    assert.equal(clipCommentBodySchema.safeParse(value).success, false);
+    assert.equal(
+      extensionCommentCreateBodySchema.safeParse({
+        extensionInstanceId: uuid,
+        body: value,
+      }).success,
+      false,
+    );
   });
 });
 
@@ -182,6 +249,10 @@ test("clipCommentParamSchema coerces the path segment", async (t) => {
       clipCommentParamSchema.safeParse({ clipId: "abc" }).success,
       false,
     );
+    assert.equal(
+      clipCommentParamSchema.safeParse({ clipId: "9007199254740992" }).success,
+      false,
+    );
   });
 });
 
@@ -224,9 +295,39 @@ test("clipCommentReportCreateBodySchema", async (t) => {
   });
 
   await t.test("理由の一覧は OpenAPI の enum と一致", () => {
+    // ベタ書き配列と比べるだけでは、OpenAPI 側だけが変わったときに気づけない。
+    // 実際に openapi/v1.yaml から enum を読み出して突き合わせる。
+    const spec = readFileSync("openapi/v1.yaml", "utf8");
+    const expected = [...CLIP_COMMENT_REPORT_REASONS];
+
+    // ClipCommentReportCreate（ブロック形式の enum）
+    const createSchema = sourceSection(
+      spec,
+      "    ClipCommentReportCreate:",
+      "\n    ClipCommentReport",
+    );
+    const blockEnum = [];
+    for (const line of createSchema
+      .slice(createSchema.indexOf("enum:"))
+      .split("\n")
+      .slice(1)) {
+      // 連続する list item だけを取る。次のキーに入ったら打ち切る
+      // （打ち切らないと note.type の [- string, - "null"] まで拾ってしまう）。
+      const item = line.match(/^\s+- (\S.*)$/);
+      if (!item) break;
+      blockEnum.push(item[1].trim());
+    }
+    assert.deepEqual(blockEnum, expected, "ClipCommentReportCreate の enum");
+
+    // recentReports 内（フロー形式の enum）
+    const flowMatch = spec.match(
+      /reason:\s*\n\s*type: string\s*\n\s*enum: \[([^\]]+)\]/,
+    );
+    assert.notEqual(flowMatch, null, "フロー形式の reason enum が見つからない");
     assert.deepEqual(
-      [...CLIP_COMMENT_REPORT_REASONS],
-      ["spam", "harassment", "spoiler", "other"],
+      flowMatch[1].split(",").map((value) => value.trim()),
+      expected,
+      "recentReports[].reason の enum",
     );
   });
 
@@ -263,12 +364,58 @@ test("clipCommentReportCreateBodySchema", async (t) => {
     );
   });
 
+  await t.test("note の上限は Unicode コードポイントで trim 前に判定", () => {
+    const accepted = schema.safeParse({
+      reason: "spam",
+      note: "😀".repeat(500),
+    });
+    assert.equal(accepted.success, true);
+    assert.equal(accepted.data.note, "😀".repeat(500));
+    assert.equal(
+      schema.safeParse({ reason: "spam", note: "😀".repeat(501) }).success,
+      false,
+    );
+    assert.equal(
+      schema.safeParse({ reason: "spam", note: ` ${"a".repeat(500)}` }).success,
+      false,
+    );
+  });
+
+  await t.test("note に NUL は使用できない", () => {
+    assert.equal(
+      schema.safeParse({ reason: "other", note: "before\u0000after" }).success,
+      false,
+    );
+  });
+
   await t.test(".strict() rejects unknown keys", () => {
     assert.equal(
       schema.safeParse({ reason: "spam", commentId: 1 }).success,
       false,
     );
   });
+});
+
+test("clip comment report list and resolve schemas", () => {
+  const list = clipCommentReportListQuerySchema.safeParse({ limit: "100" });
+  assert.equal(list.success, true);
+  assert.equal(list.data.limit, 100);
+  assert.equal(
+    clipCommentReportsResolveBodySchema.safeParse({ resolution: "dismissed" })
+      .success,
+    true,
+  );
+  assert.equal(
+    clipCommentReportsResolveBodySchema.safeParse({ resolution: "deleted" })
+      .success,
+    false,
+  );
+  assert.equal(
+    clipCommentReportsResolveBodySchema.safeParse({
+      resolution: "comment_deleted",
+    }).success,
+    false,
+  );
 });
 
 test("comment cursor round-trip keeps the id the service filters on", async (t) => {
@@ -281,10 +428,75 @@ test("comment cursor round-trip keeps the id the service filters on", async (t) 
 
   await t.test("malformed cursor is rejected", () => {
     assert.throws(() => decodeCursor("not-a-cursor"), /Invalid cursor/);
+    const malformedId = Buffer.from(
+      JSON.stringify({ c: new Date().toISOString(), i: "1oops", v: 1 }),
+    ).toString("base64url");
+    assert.throws(() => decodeCursor(malformedId), /Invalid cursor/);
   });
 
   await t.test("null and empty mean no cursor", () => {
     assert.equal(decodeCursor(null), null);
     assert.equal(decodeCursor(""), null);
   });
+});
+
+test("OpenAPI comment auth and extension auth match the implemented routes", () => {
+  const spec = readFileSync("openapi/v1.yaml", "utf8");
+  // 目印が消えた／paths が並び替えられた場合、生の indexOf だと空スライスになり
+  // doesNotMatch が素通りする。sourceSection は見つからない時点で落ちる。
+  const sitePost = sourceSection(
+    spec,
+    "operationId: clips.comments.create",
+    '"/clips/{clipId}/comments/{commentId}"',
+  );
+  assert.match(sitePost, /nextAuthSession/);
+  assert.doesNotMatch(sitePost, /bearerAuth/);
+
+  const extensionPost = sourceSection(
+    spec,
+    "operationId: extension.clips.comments.create",
+    "operationId: users.meGet",
+  );
+  assert.match(extensionPost, /extensionBearerAuth/);
+  assert.doesNotMatch(
+    spec,
+    /ExtensionComment には含まれない（Phase 1 契約を維持するため）/,
+  );
+});
+
+test("OpenAPI documents raw comment text limits and mutation conflicts", () => {
+  const spec = readFileSync("openapi/v1.yaml", "utf8");
+  // 出現回数を固定すると、4 つ目のフィールドを「正しく」書いたときに落ちてしまう。
+  // 上限を持つスキーマそれぞれが raw-input ルールを書いていることを個別に確認する。
+  const rawInputRule = /送信された未加工入力で最大 500 Unicode コードポイント/;
+  const limitedSchemas = [
+    ["ExtensionCommentCreateRequest", "    ClipComment:"],
+    ["ClipCommentCreate", "    ClipCommentReportCreate:"],
+    ["ClipCommentReportCreate", "    ClipCommentReportCreated:"],
+  ];
+  for (const [schemaName, nextSchema] of limitedSchemas) {
+    const section = sourceSection(spec, `    ${schemaName}:`, nextSchema);
+    assert.match(section, /maxLength: 500/, schemaName);
+    assert.match(section, rawInputRule, schemaName);
+  }
+
+  const commentDelete = sourceSection(
+    spec,
+    "operationId: clips.comments.delete",
+    '"/clips/{clipId}/comments/{commentId}/reports"',
+  );
+  assert.match(
+    commentDelete,
+    /"409":\s+\$ref: "#\/components\/responses\/Conflict"/,
+  );
+
+  const reportPatch = sourceSection(
+    spec,
+    "operationId: clips.comments.reports.resolve",
+    '"/clips/{clipId}/comment-reports"',
+  );
+  assert.match(
+    reportPatch,
+    /"409":\s+\$ref: "#\/components\/responses\/Conflict"/,
+  );
 });

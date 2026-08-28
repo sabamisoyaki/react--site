@@ -2,6 +2,12 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/server/db";
 
+export type ClipCommentReportResolution =
+  | "dismissed"
+  | "comment_deleted"
+  | "clip_deleted"
+  | "owner_deleted";
+
 export async function listClipCommentsByIdCursor(
   clipId: number,
   opts: { cursor?: number; limit?: number } = {},
@@ -20,7 +26,7 @@ export async function listClipCommentsByIdCursor(
     where,
     take: limit + 1,
     orderBy: { id: "desc" },
-    include: { user: { select: { name: true } } },
+    include: { user: { select: { name: true, deletedAt: true } } },
   });
 
   const hasNext = comments.length > limit;
@@ -42,8 +48,9 @@ export function createClipCommentReport(
   reporterId: number,
   reason: string,
   note: string | null,
+  db: Prisma.TransactionClient = prisma,
 ) {
-  return prisma.clipCommentReport.create({
+  return db.clipCommentReport.create({
     data: {
       commentId: BigInt(commentId),
       reporterId: BigInt(reporterId),
@@ -57,65 +64,136 @@ export function createClipCommentReport(
  * クリップ配下の「通報が付いていて、まだ消されていない」コメントを集計する。
  * 宛先はクリップ所有者なので、権限判定は呼び出し側（サービス層）で行う。
  */
-export async function listReportedCommentsForClip(clipId: number) {
-  const grouped = await prisma.clipCommentReport.groupBy({
-    by: ["commentId"],
-    where: {
-      comment: { clipId: BigInt(clipId), deletedAt: null },
-    },
-    _count: { _all: true },
-    _max: { createdAt: true },
-  });
-
-  if (grouped.length === 0) return [];
+export async function listReportedCommentsForClip(
+  clipId: number,
+  opts: { cursor?: number; limit?: number } = {},
+) {
+  const limit = opts.limit ?? 20;
+  const where: Prisma.ClipCommentWhereInput = {
+    clipId: BigInt(clipId),
+    deletedAt: null,
+    reports: { some: { resolvedAt: null } },
+  };
+  if (opts.cursor) where.id = { lt: BigInt(opts.cursor) };
 
   const comments = await prisma.clipComment.findMany({
-    where: { id: { in: grouped.map((g) => g.commentId) } },
-    include: { user: { select: { name: true } } },
+    where,
+    take: limit + 1,
+    orderBy: { id: "desc" },
+    include: {
+      user: { select: { name: true, deletedAt: true } },
+      _count: {
+        select: { reports: { where: { resolvedAt: null } } },
+      },
+      // 補足を無制限に返さない。所有者には新しい5件を判断材料として見せる。
+      reports: {
+        where: { resolvedAt: null },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 5,
+        select: { reason: true, note: true, createdAt: true },
+      },
+    },
   });
-  const byId = new Map(comments.map((c) => [String(c.id), c]));
 
-  return grouped
-    .map((g) => ({
-      comment: byId.get(String(g.commentId)),
-      reportCount: g._count._all,
-      lastReportedAt: g._max.createdAt,
-    }))
-    .filter(
-      (row): row is typeof row & { comment: NonNullable<typeof row.comment> } =>
-        row.comment != null,
-    )
-    .sort((a, b) => b.reportCount - a.reportCount);
+  const hasNext = comments.length > limit;
+  const page = hasNext ? comments.slice(0, limit) : comments;
+  const last = page.at(-1);
+
+  return {
+    rows: page.map((comment) => ({
+      comment,
+      reportCount: comment._count.reports,
+      lastReportedAt: comment.reports[0]?.createdAt ?? null,
+      recentReports: comment.reports,
+    })),
+    hasNext,
+    nextCursor: hasNext && last ? last.id : null,
+  };
 }
 
-/**
- * 権限判定に必要な最小限だけを引く。
- * 投稿者本人 (userId) とクリップ所有者 (clip.userId) の両方がモデレーションできる。
- */
-export function findClipCommentForModeration(
-  clipId: number,
+export function resolveClipCommentReports(
   commentId: number,
+  resolverId: number,
+  resolution: ClipCommentReportResolution,
+  db: Prisma.TransactionClient = prisma,
 ) {
-  return prisma.clipComment.findFirst({
-    where: {
-      id: BigInt(commentId),
-      clipId: BigInt(clipId),
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-      userId: true,
-      clip: { select: { userId: true } },
+  return db.clipCommentReport.updateMany({
+    where: { commentId: BigInt(commentId), resolvedAt: null },
+    data: {
+      resolvedAt: new Date(),
+      resolvedById: BigInt(resolverId),
+      resolution,
     },
   });
+}
+
+export async function resolveClipCommentReportsForClips(
+  clipIds: readonly (number | bigint)[],
+  resolverId: number,
+  resolution: Extract<
+    ClipCommentReportResolution,
+    "clip_deleted" | "owner_deleted"
+  >,
+  db: Prisma.TransactionClient = prisma,
+) {
+  const uniqueClipIds = [...new Set(clipIds.map((id) => BigInt(id)))];
+  if (uniqueClipIds.length === 0) return { count: 0 };
+
+  return db.clipCommentReport.updateMany({
+    where: {
+      resolvedAt: null,
+      comment: { clipId: { in: uniqueClipIds } },
+    },
+    data: {
+      resolvedAt: new Date(),
+      resolvedById: BigInt(resolverId),
+      resolution,
+    },
+  });
+}
+
+export async function lockClipCommentForModeration(
+  clipId: number,
+  commentId: number,
+  db: Prisma.TransactionClient,
+) {
+  // JOIN に対する FOR UPDATE は行ロックの取得順を保証しないため、clip と comment を
+  // 分けて固定順に取得する。呼び出し側の user lock と合わせて
+  // user -> clip -> comment が全モデレーション経路の共通順序になる。
+  const clips = await db.$queryRaw<Array<{ clipOwnerId: bigint }>>`
+    SELECT
+      user_id AS "clipOwnerId"
+    FROM clips
+    WHERE id = ${BigInt(clipId)}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  `;
+  const clip = clips[0];
+  if (!clip) return null;
+
+  const comments = await db.$queryRaw<Array<{ id: bigint; userId: bigint }>>`
+    SELECT
+      id,
+      user_id AS "userId"
+    FROM clip_comments
+    WHERE id = ${BigInt(commentId)}
+      AND clip_id = ${BigInt(clipId)}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  `;
+  const comment = comments[0];
+  return comment ? { ...comment, clipOwnerId: clip.clipOwnerId } : null;
 }
 
 /**
  * 論理削除。updateMany + deletedAt IS NULL 条件にしているのは、
  * 同時に2回消しても2回目が count 0 になり 404 に落とせるようにするため。
  */
-export function softDeleteClipComment(commentId: number) {
-  return prisma.clipComment.updateMany({
+export function softDeleteClipComment(
+  commentId: number,
+  db: Prisma.TransactionClient = prisma,
+) {
+  return db.clipComment.updateMany({
     where: { id: BigInt(commentId), deletedAt: null },
     data: { deletedAt: new Date() },
   });
@@ -130,6 +208,7 @@ export function createClipComment(
   userId: number,
   body: string,
   atMs: number | null = null,
+  clientRequestId?: string,
   db: Prisma.TransactionClient = prisma,
 ) {
   return db.clipComment.create({
@@ -138,7 +217,48 @@ export function createClipComment(
       userId: BigInt(userId),
       body,
       atMs,
+      clientRequestId,
     },
-    include: { user: { select: { name: true } } },
+    include: { user: { select: { name: true, deletedAt: true } } },
   });
+}
+
+export function findClipCommentByClientRequestId(
+  userId: number,
+  clientRequestId: string,
+  db: Prisma.TransactionClient,
+) {
+  return db.clipComment.findUnique({
+    where: {
+      userId_clientRequestId: {
+        userId: BigInt(userId),
+        clientRequestId,
+      },
+    },
+    include: { user: { select: { name: true, deletedAt: true } } },
+  });
+}
+
+export function countRecentClipCommentsByUser(
+  userId: number,
+  since: Date,
+  db: Prisma.TransactionClient,
+) {
+  return db.clipComment.count({
+    where: { userId: BigInt(userId), createdAt: { gte: since } },
+  });
+}
+
+export async function lockActiveUser(
+  userId: number,
+  db: Prisma.TransactionClient,
+) {
+  const rows = await db.$queryRaw<Array<{ id: bigint }>>`
+    SELECT id
+    FROM users
+    WHERE id = ${BigInt(userId)}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  `;
+  return rows[0] ?? null;
 }

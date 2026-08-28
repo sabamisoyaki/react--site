@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_QUERY_LENGTH } from "@/lib/search/utils";
+
 import {
   cursorPaginationQuerySchema,
   hardDeleteQuerySchema,
@@ -15,13 +17,13 @@ export const playlistListQuerySchema = paginationQuerySchema
   .extend(sortQuerySchema.shape)
   .extend({
     userId: idSchema.optional(),
-    name: z.string().optional(),
+    name: z.string().max(MAX_QUERY_LENGTH).optional(),
   });
 
 export const playlistCursorListQuerySchema = cursorPaginationQuerySchema
   .extend({
     userId: idSchema.optional(),
-    name: z.string().optional(),
+    name: z.string().max(MAX_QUERY_LENGTH).optional(),
   })
   .strict();
 

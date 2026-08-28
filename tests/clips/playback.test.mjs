@@ -2,22 +2,30 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
+
+const {
   buildPlaybackUrl,
   buildServiceUrl,
   clearPlaybackClipId,
   openClipPlayback,
-} from "../../src/lib/clips/playback.ts";
+} = await import("../../src/lib/clips/playback.ts");
 
 /**
  * openClipPlayback は document.cookie / window への副作用が本体なので、
  * 最小の DOM スタブを立てて副作用そのものを検証する。
  * cookie は名前ごとに最後の書き込みを保持し、max-age=0 は削除として扱う。
  */
-function installDomStub() {
+function installDomStub({ popupBlocked = false } = {}) {
   const cookies = new Map();
   const opened = [];
   const events = [];
+  // 元の記述子を保存する。undefined を代入するだけだと own property が残り、
+  // `"document" in globalThis` が true のままになる。
+  const originalDocument = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "document",
+  );
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
 
   globalThis.document = {
     set cookie(value) {
@@ -36,7 +44,10 @@ function installDomStub() {
   };
 
   globalThis.window = {
-    open: (url) => opened.push(url),
+    open: (url) => {
+      opened.push(url);
+      return popupBlocked ? null : {};
+    },
     dispatchEvent: (event) => events.push(event),
   };
 
@@ -45,8 +56,13 @@ function installDomStub() {
     opened,
     events,
     restore() {
-      globalThis.document = undefined;
-      globalThis.window = undefined;
+      for (const [key, descriptor] of [
+        ["document", originalDocument],
+        ["window", originalWindow],
+      ]) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else delete globalThis[key];
+      }
     },
   };
 }
@@ -66,6 +82,7 @@ test("openClipPlayback writes the clipId cookie and event detail when id is vali
   try {
     assert.equal(openClipPlayback({ ...supportedClip, id: 42 }), true);
     assert.equal(dom.cookies.get("clipId"), "42");
+    assert.equal(dom.cookies.get("service"), "NETFLIX");
     assert.equal(dom.events.length, 1);
     assert.equal(dom.events[0].detail.clipId, 42);
     assert.deepEqual(dom.opened, [
@@ -117,6 +134,20 @@ test("openClipPlayback writes no cookie at all for an unsupported service", () =
     assert.equal(dom.cookies.size, 0);
     assert.equal(dom.events.length, 0);
     assert.equal(dom.opened.length, 0);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("openClipPlayback performs no handoff when the popup is blocked", () => {
+  const dom = installDomStub({ popupBlocked: true });
+  try {
+    assert.equal(openClipPlayback({ ...supportedClip, id: 42 }), false);
+    assert.equal(dom.cookies.size, 0);
+    assert.equal(dom.events.length, 0);
+    assert.deepEqual(dom.opened, [
+      "https://www.netflix.com/watch/70176435?t=10",
+    ]);
   } finally {
     dom.restore();
   }

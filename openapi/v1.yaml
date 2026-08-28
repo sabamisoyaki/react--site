@@ -73,6 +73,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    extensionBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: OpaqueToken
+      description: Opaque token bound to a linked extension instance.
   parameters:
     CursorParam:
       name: cursor
@@ -115,8 +120,14 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Request is not allowed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Conflict:
-      description: Conflict / Unique constraint violation
+      description: Conflict / Concurrent transaction or unique constraint violation
       content:
         application/json:
           schema:
@@ -125,6 +136,8 @@ components:
     ID:
       type: integer
       minimum: 1
+      maximum: 9007199254740991
+      description: JavaScript safe integer. Values above this boundary are rejected.
     DateTime:
       type: string
       format: date-time
@@ -580,19 +593,23 @@ components:
         clipId:
           $ref: "#/components/schemas/ID"
         userId:
-          $ref: "#/components/schemas/ID"
+          anyOf:
+            - $ref: "#/components/schemas/ID"
+            - type: "null"
+          description: null when the author account has been deleted.
         username:
           type:
             - string
             - "null"
           maxLength: 255
           description: >
-            users.name をそのまま返す。nickname 機能が未実装のため null が
-            あり得る。表示側でフォールバックする前提。
+            users.name。nickname 未設定または退会済みユーザーでは null。
+            表示側で匿名ユーザー名へフォールバックする前提。
         body:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: "^[^\\u0000]*$"
         atMs:
           type:
             - integer
@@ -658,7 +675,10 @@ components:
           type: string
           minLength: 1
           maxLength: 500
-          description: trim 後 1–500 文字。前後の空白は保存前に除去される。
+          pattern: "^[^\\u0000]*$"
+          description: >
+            送信された未加工入力で最大 500 Unicode コードポイント。
+            上限判定後に trim し、1 文字以上残る必要がある。NUL（U+0000）は使用できない。
         atMs:
           type:
             - integer
@@ -672,6 +692,10 @@ components:
             (AT_MS_OUT_OF_RANGE)。拡張側は送信前にクランプする方針だが、
 
             サーバー側の検証は保険として残している。
+        clientRequestId:
+          type: string
+          format: uuid
+          description: Optional idempotency key scoped to the linked user.
       additionalProperties: false
     ExtensionCommentCreateResponse:
       type: object
@@ -692,19 +716,23 @@ components:
         clipId:
           $ref: "#/components/schemas/ID"
         userId:
-          $ref: "#/components/schemas/ID"
+          anyOf:
+            - $ref: "#/components/schemas/ID"
+            - type: "null"
+          description: null when the author account has been deleted.
         username:
           type:
             - string
             - "null"
           maxLength: 255
           description: >
-            users.name をそのまま返す。nickname 機能が未実装のため null が
-            あり得る。表示側でフォールバックする前提。
+            users.name。nickname 未設定または退会済みユーザーでは null。
+            表示側で匿名ユーザー名へフォールバックする前提。
         body:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: "^[^\\u0000]*$"
         atMs:
           type:
             - integer
@@ -713,9 +741,7 @@ components:
           description: >
             時刻アンカー。clips.startMs / endMs と同じ「動画内の位置」座標系の
 
-            ミリ秒。null は「クリップ全体へのコメント」。拡張API の
-
-            ExtensionComment には含まれない（Phase 1 契約を維持するため）。
+            ミリ秒。null は「クリップ全体へのコメント」。拡張APIでも同じ値を返す。
         createdAt:
           $ref: "#/components/schemas/DateTime"
       required:
@@ -736,7 +762,10 @@ components:
           type: string
           minLength: 1
           maxLength: 500
-          description: trim 後 1–500 文字。前後の空白は保存前に除去される。
+          pattern: "^[^\\u0000]*$"
+          description: >
+            送信された未加工入力で最大 500 Unicode コードポイント。
+            上限判定後に trim し、1 文字以上残る必要がある。NUL（U+0000）は使用できない。
         atMs:
           type:
             - integer
@@ -748,6 +777,10 @@ components:
             clip.startMs 以上 clip.endMs 以下（両端含む）。範囲外は 400
 
             (AT_MS_OUT_OF_RANGE)。
+        clientRequestId:
+          type: string
+          format: uuid
+          description: Optional idempotency key scoped to the current user.
       additionalProperties: false
     ClipCommentReportCreate:
       type: object
@@ -766,7 +799,10 @@ components:
             - string
             - "null"
           maxLength: 500
-          description: 補足。trim 後に空なら null として保存される。
+          pattern: "^[^\\u0000]*$"
+          description: >
+            補足。送信された未加工入力で最大 500 Unicode コードポイント。
+            上限判定後に trim し、空なら null として保存される。NUL（U+0000）は使用できない。
       additionalProperties: false
     ClipCommentReportCreated:
       type: object
@@ -789,10 +825,29 @@ components:
           minimum: 1
         lastReportedAt:
           $ref: "#/components/schemas/DateTime"
+        recentReports:
+          type: array
+          maxItems: 5
+          description: Newest unresolved reports; reporter identity is not exposed.
+          items:
+            type: object
+            properties:
+              reason:
+                type: string
+                enum: [spam, harassment, spoiler, other]
+              note:
+                type: [string, "null"]
+                maxLength: 500
+                pattern: "^[^\\u0000]*$"
+              createdAt:
+                $ref: "#/components/schemas/DateTime"
+            required: [reason, note, createdAt]
+            additionalProperties: false
       required:
         - comment
         - reportCount
         - lastReportedAt
+        - recentReports
       additionalProperties: false
     Playlist:
       type: object
@@ -872,7 +927,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ExtensionSession"
         "403":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/Forbidden"
   /extension/link-token:
     post:
       operationId: extension.linkToken.issue
@@ -892,7 +947,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/Forbidden"
   /extension/link:
     post:
       operationId: extension.link
@@ -918,6 +973,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
   /extension/sync:
@@ -928,7 +985,7 @@ paths:
         - Utilities
       summary: Sync clips from a linked extension instance using bearer auth
       security:
-        - bearerAuth: []
+        - extensionBearerAuth: []
       requestBody:
         required: true
         content:
@@ -946,6 +1003,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
   "/extension/clips/{clipId}/comments":
@@ -970,7 +1029,7 @@ paths:
 
         存在しないものとして扱う。
       security:
-        - bearerAuth: []
+        - extensionBearerAuth: []
       parameters:
         - name: extensionInstanceId
           in: query
@@ -986,8 +1045,7 @@ paths:
           in: query
           description: この id より小さいコメントを返す（id < cursor）
           schema:
-            type: integer
-            minimum: 1
+            $ref: "#/components/schemas/ID"
         - name: limit
           in: query
           schema:
@@ -1007,7 +1065,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     post:
@@ -1021,9 +1079,11 @@ paths:
 
         あれば、自分が所有しないクリップにも投稿できる。POST は last_seen_at を
 
-        更新する。初版ではレート制限・冪等性キーを持たない。
+        更新する。clientRequestId を指定した再試行は同じコメントを返す。投稿は
+
+        ユーザー単位で1分30件まで。
       security:
-        - bearerAuth: []
+        - extensionBearerAuth: []
       requestBody:
         required: true
         content:
@@ -1042,9 +1102,17 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          description: Comment rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /me:
     get:
       operationId: users.meGet
@@ -1837,6 +1905,12 @@ paths:
                 $ref: "#/components/schemas/Clip"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "409":
+          description: The requested clip range would exclude an active comment anchor
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     delete:
       operationId: clips.delete
       x-permission: ownerOrAdmin
@@ -1908,10 +1982,11 @@ paths:
       description: >
         投稿者はセッションのユーザー。自分が所有しないクリップにも投稿できる
 
-        （拡張API と同じ可視性）。初版ではレート制限・冪等性キー・削除を持たない。
+        （拡張API と同じ可視性）。clientRequestId を指定した再試行は同じコメントを
+
+        返す。投稿はユーザー単位で1分30件まで。コメントは別操作で論理削除できる。
       security:
         - nextAuthSession: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -1931,6 +2006,14 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          description: Comment rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   "/clips/{clipId}/comments/{commentId}":
     parameters:
       - name: clipId
@@ -1954,10 +2037,11 @@ paths:
 
         所有者（モデレーション）。このアプリに管理者ロールは存在しないため、
 
-        横断的なモデレーション権限は無い。既に削除済みのコメントは 404。
+        横断的なモデレーション権限は無い。未解決の通報は削除と同時に
+
+        `comment_deleted` として解決される。既に削除済みのコメントは 404。
       security:
         - nextAuthSession: []
-        - bearerAuth: []
       responses:
         "204":
           description: Deleted
@@ -1973,6 +2057,8 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   "/clips/{clipId}/comments/{commentId}/reports":
     parameters:
       - name: clipId
@@ -1999,7 +2085,6 @@ paths:
         （消せばよい）。同じ人が同じコメントを二重通報すると 409。
       security:
         - nextAuthSession: []
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -2021,6 +2106,43 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+    patch:
+      operationId: clips.comments.reports.resolve
+      x-permission: clipOwner
+      tags:
+        - Clips
+      summary: Dismiss unresolved reports on a comment
+      security:
+        - nextAuthSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolution:
+                  type: string
+                  const: dismissed
+              required: [resolution]
+              additionalProperties: false
+      responses:
+        "204":
+          description: Reports marked as resolved
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Not the clip owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   "/clips/{clipId}/comment-reports":
     parameters:
       - name: clipId
@@ -2037,16 +2159,18 @@ paths:
       description: >
         クリップ所有者だけが見られる。通報の付いた、まだ削除されていない
 
-        コメントを通報件数の降順で返す。件数が通報のあるコメント数で
+        コメントidの降順でカーソルページングして返す。各行には未解決通報の総数と、
 
-        頭打ちになるためページングを持たない。
+        判断材料として新しい5件の理由・補足を含む。解決済み通報は返さない。
 
         パスを /comments/reports にしていないのは、同階層の {commentId} と
 
         静的/動的セグメントの優先順位で解決が決まる形になり紛らわしいため。
       security:
         - nextAuthSession: []
-        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CursorParam"
+        - $ref: "#/components/parameters/LimitParam"
       responses:
         "200":
           description: Reported comments
@@ -2059,9 +2183,14 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/ReportedClipComment"
+                  meta:
+                    $ref: "#/components/schemas/CursorPaginationMeta"
                 required:
                   - data
+                  - meta
                 additionalProperties: false
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

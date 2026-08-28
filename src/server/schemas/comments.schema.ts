@@ -1,22 +1,42 @@
 import { z } from "zod";
 
+import {
+  COMMENT_BODY_MAX_CODE_POINTS,
+  isWithinUnicodeCodePointLimit,
+  REPORT_NOTE_MAX_CODE_POINTS,
+} from "@/lib/comments/text";
 import { cursorPaginationQuerySchema, idSchema } from "@/server/schemas/common";
 
-// clip_comments.body は VarChar(500)。拡張API（extension.schema.ts）と
-// サイトAPI で同じ列に書くので、長さと trim のルールはここを唯一の出所にする。
-export const clipCommentBodySchema = z.string().trim().min(1).max(500);
+// v1 と拡張API が同じ clip_comments.body (VarChar(500)) に書くので、ここを唯一の出所にする。
+// NUL は PostgreSQL が保存できないため、DBエラーになる前に 400 へ落とす。
+const withoutNul = (value: string) => !value.includes("\u0000");
+const withoutNulMessage = { message: "NUL characters are not allowed" };
+
+export const clipCommentBodySchema = z
+  .string()
+  .refine(
+    (value) =>
+      isWithinUnicodeCodePointLimit(value, COMMENT_BODY_MAX_CODE_POINTS),
+    {
+      message: `Must contain at most ${COMMENT_BODY_MAX_CODE_POINTS} Unicode code points`,
+    },
+  )
+  .trim()
+  .min(1)
+  .refine(withoutNul, withoutNulMessage);
 
 export const clipCommentListQuerySchema = cursorPaginationQuerySchema;
 
-// 時刻アンカー。clips.start_ms / end_ms と同じ「動画内の位置」座標系のミリ秒。
-// 省略・null は「クリップ全体へのコメント」。範囲がクリップ内に収まるかは
-// クリップを読まないと判定できないのでサービス層で検証する。
+// 時刻アンカー(ms)。null は「クリップ全体へのコメント」。
+// クリップ範囲に収まるかはクリップを読まないと判定できないのでサービス層で検証する。
 export const clipCommentAtMsSchema = z.number().int().min(0).nullish();
 
 export const clipCommentCreateBodySchema = z
   .object({
     body: clipCommentBodySchema,
     atMs: clipCommentAtMsSchema,
+    // 再送で二重投稿しないための任意キー。ユーザー内で一意。
+    clientRequestId: z.uuid().optional(),
   })
   .strict();
 
@@ -27,8 +47,7 @@ export const clipCommentIdParamSchema = z.object({
   commentId: idSchema,
 });
 
-// 通報理由。DB は VarChar(32) の素の文字列で、値の妥当性はここで担保する。
-// 「その他」を選んだときだけ note が意味を持つが、必須にはしない。
+// DB は VarChar(32) の素の文字列なので、値の妥当性はここで担保する。
 export const CLIP_COMMENT_REPORT_REASONS = [
   "spam",
   "harassment",
@@ -39,7 +58,27 @@ export const CLIP_COMMENT_REPORT_REASONS = [
 export const clipCommentReportCreateBodySchema = z
   .object({
     reason: z.enum(CLIP_COMMENT_REPORT_REASONS),
-    note: z.string().trim().max(500).optional().nullable(),
+    note: z
+      .string()
+      .refine(
+        (value) =>
+          isWithinUnicodeCodePointLimit(value, REPORT_NOTE_MAX_CODE_POINTS),
+        {
+          message: `Must contain at most ${REPORT_NOTE_MAX_CODE_POINTS} Unicode code points`,
+        },
+      )
+      .trim()
+      .refine(withoutNul, withoutNulMessage)
+      .optional()
+      .nullable(),
+  })
+  .strict();
+
+export const clipCommentReportListQuerySchema = cursorPaginationQuerySchema;
+
+export const clipCommentReportsResolveBodySchema = z
+  .object({
+    resolution: z.literal("dismissed"),
   })
   .strict();
 
@@ -49,4 +88,10 @@ export type ClipCommentParam = z.infer<typeof clipCommentParamSchema>;
 export type ClipCommentIdParam = z.infer<typeof clipCommentIdParamSchema>;
 export type ClipCommentReportCreateBody = z.infer<
   typeof clipCommentReportCreateBodySchema
+>;
+export type ClipCommentReportListQuery = z.infer<
+  typeof clipCommentReportListQuerySchema
+>;
+export type ClipCommentReportsResolveBody = z.infer<
+  typeof clipCommentReportsResolveBodySchema
 >;

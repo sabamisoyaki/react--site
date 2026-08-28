@@ -128,7 +128,10 @@ export function decodeCursor(value?: string | null): CursorPayload | null {
     if (
       decoded.v !== CURSOR_VERSION ||
       typeof decoded.c !== "string" ||
-      typeof decoded.i !== "string"
+      typeof decoded.i !== "string" ||
+      !/^\d+$/.test(decoded.i) ||
+      BigInt(decoded.i) > BigInt(Number.MAX_SAFE_INTEGER) ||
+      BigInt(decoded.i) <= 0n
     ) {
       throw new Error("Invalid cursor payload");
     }

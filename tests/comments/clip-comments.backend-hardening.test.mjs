@@ -154,7 +154,7 @@ test("comment hardening migration trims JavaScript Unicode whitespace", () => {
   assert.doesNotMatch(migration, /char_length\(btrim\("body"\)\)/);
 });
 
-test("comment mutations use the common user -> clip -> comment lock order", () => {
+test("comment mutations use the common lock order and creation requires an active owner", () => {
   const service = readFileSync("src/server/services/comments.ts", "utf8");
   const repository = readFileSync(
     "src/server/repositories/comments.ts",
@@ -167,10 +167,25 @@ test("comment mutations use the common user -> clip -> comment lock order", () =
     "async function assertClipIsActive",
   );
   assertAppearsInOrder(create, [
-    "lockActiveUser",
+    "findActiveOwnerById",
+    "lockUsersByIdOrder",
+    "owner.deletedAt !== null",
     "lockActiveById",
+    "clip.userId",
     "findClipCommentByClientRequestId",
   ]);
+  assert.match(
+    create,
+    /lockUsersByIdOrder\([\s\S]*userId,[\s\S]*clipOwner\.userId/,
+  );
+  assert.match(
+    create,
+    /if \(!owner \|\| owner\.deletedAt !== null\) \{\s*throw new NotFoundError\("Clip not found"\)/,
+  );
+  assert.match(
+    create,
+    /if \(String\(clip\.userId\) !== String\(clipOwner\.userId\)\) \{\s*throw new NotFoundError\("Clip not found"\)/,
+  );
 
   const deletion = sourceSection(
     service,

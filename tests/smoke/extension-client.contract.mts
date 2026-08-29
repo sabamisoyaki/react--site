@@ -46,9 +46,28 @@ const EXTENSION_ORIGIN_PREFIX = "chrome-extension://";
 // chrome-extension://* が設定されている場合に使う合成ID（Chrome の拡張IDは 32 文字）。
 const SYNTHETIC_EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
 
+function toConcreteExtensionOrigin(
+  value: string,
+  source: string,
+): { origin: string; source: string } | null {
+  if (value === `${EXTENSION_ORIGIN_PREFIX}*`) {
+    return {
+      origin: `${EXTENSION_ORIGIN_PREFIX}${SYNTHETIC_EXTENSION_ID}`,
+      source: `${source} のワイルドカードに対する合成ID`,
+    };
+  }
+
+  if (!value.startsWith(EXTENSION_ORIGIN_PREFIX)) return null;
+  const extensionId = value.slice(EXTENSION_ORIGIN_PREFIX.length);
+  if (extensionId.length === 0 || extensionId.includes("/")) return null;
+  return { origin: value, source };
+}
+
 function resolveExtensionOrigin(): { origin: string; source: string } | null {
   const explicit = process.env.SMOKE_EXTENSION_ORIGIN?.trim();
-  if (explicit) return { origin: explicit, source: "SMOKE_EXTENSION_ORIGIN" };
+  if (explicit) {
+    return toConcreteExtensionOrigin(explicit, "SMOKE_EXTENSION_ORIGIN");
+  }
 
   const configured = (process.env.CLIP_API_ALLOWED_ORIGINS ?? "")
     .split(",")
@@ -56,16 +75,26 @@ function resolveExtensionOrigin(): { origin: string; source: string } | null {
     .filter((value) => value.startsWith(EXTENSION_ORIGIN_PREFIX));
 
   if (configured.length === 0) return null;
-  if (configured.includes(`${EXTENSION_ORIGIN_PREFIX}*`)) {
-    return {
-      origin: `${EXTENSION_ORIGIN_PREFIX}${SYNTHETIC_EXTENSION_ID}`,
-      source: `${EXTENSION_ORIGIN_PREFIX}* に対する合成ID`,
-    };
-  }
-  return { origin: configured[0], source: "CLIP_API_ALLOWED_ORIGINS" };
+  const wildcard = configured.find(
+    (value) => value === `${EXTENSION_ORIGIN_PREFIX}*`,
+  );
+  return toConcreteExtensionOrigin(
+    wildcard ?? configured[0],
+    "CLIP_API_ALLOWED_ORIGINS",
+  );
 }
 
 const extensionOrigin = resolveExtensionOrigin();
+
+if (extensionOrigin === null) {
+  console.error(
+    "CORS 検証用の chrome-extension:// オリジンを解決できない。\n" +
+      "SMOKE_EXTENSION_ORIGIN を指定するか、CLIP_API_ALLOWED_ORIGINS に " +
+      "chrome-extension://<id>（開発時は chrome-extension://*）を設定する。\n" +
+      "ブラウザから利用できることを確認できないため、この契約スモークは失敗扱い。",
+  );
+  process.exit(1);
+}
 
 const entry = `${EXT_REPO}/src/background/comments.js`;
 if (!existsSync(entry)) {
@@ -135,7 +164,6 @@ const { prisma } = await import("@/server/db");
 
 let pass = 0;
 let fail = 0;
-let skipped = 0;
 const failures: string[] = [];
 
 function check(name: string, cond: boolean, detail?: unknown) {
@@ -151,13 +179,15 @@ function check(name: string, cond: boolean, detail?: unknown) {
 const eq = (n: string, a: unknown, e: unknown) =>
   check(n, Object.is(a, e), { actual: a, expected: e });
 
-/**
- * この設定では検証できない項目。赤にも緑にもしない。
- * 環境依存の前提が満たせないだけで、契約違反ではないため。
- */
-function skip(name: string, reason: string) {
-  skipped++;
-  console.log(`  - ${name}（スキップ: ${reason}）`);
+async function cleanupStep(label: string, operation: () => Promise<void>) {
+  try {
+    await operation();
+  } catch (error) {
+    fail++;
+    const message = `${label}: ${(error as Error).message}`;
+    failures.push(message);
+    console.error(`  後始末失敗 ${message}`);
+  }
 }
 
 const token = randomBytes(32).toString("base64url");
@@ -165,6 +195,9 @@ const instanceId = randomUUID();
 const authHash = createHash("sha256").update(token).digest("hex");
 
 let linkedId: bigint | null = null;
+let fixtureClipId: bigint | null = null;
+let fixtureUserId: bigint | null = null;
+let fixtureVodId: number | null = null;
 const createdCommentIds: bigint[] = [];
 
 function seedAuth(t: string = token) {
@@ -225,26 +258,59 @@ try {
   }
 
   // -------------------------------------------------------------------------
-  const clip = await prisma.clip.findFirstOrThrow({
-    where: { deletedAt: null },
-    select: { id: true, userId: true, startMs: true, endMs: true },
-    orderBy: { id: "asc" },
-  });
-  const clipId = Number(clip.id);
+  // 実ユーザーの投稿レートや既存データに左右されず、契約違反でレスポンスから
+  // comment.id を回収できない場合でも clipId 単位で確実に後始末できる専用fixture。
+  const fixtureNonce = randomUUID();
+  const fixtures = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        name: "extension-client-contract-smoke-user",
+        email: `extension-client-contract-smoke-${fixtureNonce}@example.invalid`,
+      },
+      select: { id: true },
+    });
+    const vod = await tx.vod.create({
+      data: {
+        code: `smoke-${fixtureNonce}`,
+        name: `Extension client contract smoke ${fixtureNonce}`,
+      },
+      select: { id: true },
+    });
+    const clip = await tx.clip.create({
+      data: {
+        userId: user.id,
+        vodId: vod.id,
+        name: `拡張クライアント契約スモーク ${fixtureNonce}`,
+        title: "Extension client contract smoke fixture",
+        startMs: 1_000,
+        endMs: 60_000,
+        url: "https://www.netflix.com/watch/1",
+      },
+      select: { id: true, userId: true, startMs: true, endMs: true },
+    });
+    const linked = await tx.linkedExtension.create({
+      data: {
+        userId: user.id,
+        extensionInstanceId: instanceId,
+        extensionAuthHash: authHash,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+      select: { id: true },
+    });
 
-  const linked = await prisma.linkedExtension.create({
-    data: {
-      userId: clip.userId,
-      extensionInstanceId: instanceId,
-      extensionAuthHash: authHash,
-      expiresAt: new Date(Date.now() + 86_400_000),
-    },
-    select: { id: true },
+    return { user, vod, clip, linked };
   });
+
+  const { user: fixtureUser, vod: fixtureVod, clip, linked } = fixtures;
+  fixtureUserId = fixtureUser.id;
+  fixtureVodId = fixtureVod.id;
+  fixtureClipId = clip.id;
   linkedId = linked.id;
+  const clipId = Number(clip.id);
   seedAuth();
   console.log(
-    `\nfixtures: clip=${clipId} (${clip.startMs}–${clip.endMs}ms), linkedExtension=${linked.id}`,
+    `\nfixtures: user=${fixtureUser.id}, vod=${fixtureVod.id}, ` +
+      `clip=${clipId} (${clip.startMs}–${clip.endMs}ms), linkedExtension=${linked.id}`,
   );
 
   // -------------------------------------------------------------------------
@@ -475,30 +541,22 @@ try {
         headers: { authorization: `Bearer ${token}`, origin },
       });
 
-    if (extensionOrigin === null) {
-      skip(
-        "chrome-extension:// オリジンが許可されている",
-        "CLIP_API_ALLOWED_ORIGINS に chrome-extension:// のエントリが無い" +
-          "（SMOKE_EXTENSION_ORIGIN で指定できる）",
-      );
-    } else {
-      const allowed = await withOrigin(extensionOrigin.origin);
+    const allowed = await withOrigin(extensionOrigin.origin);
 
-      // status !== 403 だけだと 401/404/500 も「許可」と読めてしまう。
-      // この生 fetch はブラウザ専用経路の代替なので、Chrome が実際に
-      // レスポンスを読める条件（成功 + ACAO 一致）まで見る。
-      eq("拡張オリジンでも 200 が返る", allowed.status, 200);
-      eq(
-        "Access-Control-Allow-Origin が送ったオリジンと一致する",
-        allowed.headers.get("access-control-allow-origin"),
-        extensionOrigin.origin,
-      );
-      eq(
-        "資格情報付きリクエストを許可している",
-        allowed.headers.get("access-control-allow-credentials"),
-        "true",
-      );
-    }
+    // status !== 403 だけだと 401/404/500 も「許可」と読めてしまう。
+    // この生 fetch はブラウザ専用経路の代替なので、Chrome が実際に
+    // レスポンスを読める条件（成功 + ACAO 一致）まで見る。
+    eq("拡張オリジンでも 200 が返る", allowed.status, 200);
+    eq(
+      "Access-Control-Allow-Origin が送ったオリジンと一致する",
+      allowed.headers.get("access-control-allow-origin"),
+      extensionOrigin.origin,
+    );
+    eq(
+      "資格情報付きリクエストを許可している",
+      allowed.headers.get("access-control-allow-credentials"),
+      "true",
+    );
 
     const denied = await withOrigin("https://evil.example");
     eq("無関係なオリジンは 403", denied.status, 403);
@@ -547,19 +605,46 @@ try {
   console.error("\nEXCEPTION:", e);
 } finally {
   console.log("\n後始末");
-  if (createdCommentIds.length) {
-    const r = await prisma.clipComment.deleteMany({
-      where: { id: { in: createdCommentIds } },
+  if (fixtureClipId != null) {
+    const id = fixtureClipId;
+    await cleanupStep("専用コメントの物理削除", async () => {
+      // response contract が壊れて comment.id を追跡できなくても全件を回収する。
+      const r = await prisma.clipComment.deleteMany({
+        where: { clipId: id },
+      });
+      console.log(`  専用コメントを物理削除: ${r.count} 件`);
     });
-    console.log(`  コメントを物理削除: ${r.count} 件`);
   }
   if (linkedId != null) {
-    await prisma.linkedExtension.delete({ where: { id: linkedId } });
-    console.log(`  linked_extensions を物理削除: ${linkedId}`);
+    const id = linkedId;
+    await cleanupStep("linked_extensionsの物理削除", async () => {
+      await prisma.linkedExtension.delete({ where: { id } });
+      console.log(`  linked_extensions を物理削除: ${id}`);
+    });
   }
-  await prisma.$disconnect();
-  const skipNote = skipped ? `, ${skipped} skipped` : "";
-  console.log(`\n==== ${pass} passed, ${fail} failed${skipNote} ====`);
+  if (fixtureClipId != null) {
+    const id = fixtureClipId;
+    await cleanupStep("専用クリップの物理削除", async () => {
+      await prisma.clip.delete({ where: { id } });
+      console.log(`  専用クリップを物理削除: ${id}`);
+    });
+  }
+  if (fixtureUserId != null) {
+    const id = fixtureUserId;
+    await cleanupStep("専用ユーザーの物理削除", async () => {
+      await prisma.user.delete({ where: { id } });
+      console.log(`  専用ユーザーを物理削除: ${id}`);
+    });
+  }
+  if (fixtureVodId != null) {
+    const id = fixtureVodId;
+    await cleanupStep("専用VODの物理削除", async () => {
+      await prisma.vod.delete({ where: { id } });
+      console.log(`  専用VODを物理削除: ${id}`);
+    });
+  }
+  await cleanupStep("Prisma切断", () => prisma.$disconnect());
+  console.log(`\n==== ${pass} passed, ${fail} failed ====`);
   if (failures.length) for (const f of failures) console.log("  -", f);
   process.exitCode = fail === 0 ? 0 : 1;
 }

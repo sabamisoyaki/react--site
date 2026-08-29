@@ -433,6 +433,53 @@ try {
     );
   }
 
+  // ---- 退会済みクリップ所有者 -------------------------------------------
+  console.log("\n退会済みクリップ所有者");
+  {
+    const retiredOwner = await prisma.user.create({
+      data: {
+        name: "smoke-retired-comment-owner",
+        email: `smoke-retired-comment-owner-${Date.now()}-${crypto.randomUUID()}@example.invalid`,
+      },
+      select: { id: true },
+    });
+    createdUserIds.push(retiredOwner.id);
+
+    const orphanedClip = await prisma.clip.create({
+      data: {
+        userId: retiredOwner.id,
+        vodId: vod.id,
+        name: `退会所有者コメント拒否 ${crypto.randomUUID()}`,
+        title: "Retired owner comment rejection fixture",
+        startMs: 0,
+        endMs: 1_000,
+        url: "https://www.netflix.com/watch/1",
+      },
+      select: { id: true },
+    });
+    await prisma.user.update({
+      where: { id: retiredOwner.id },
+      data: { deletedAt: new Date() },
+    });
+
+    const rejected = await req(
+      `/api/v1/clips/${Number(orphanedClip.id)}/comments`,
+      {
+        method: "POST",
+        cookie: authCookie,
+        body: JSON.stringify({ body: "モデレーション不能になる投稿" }),
+      },
+    );
+    eq("所有者が退会済みの active clip への投稿は 404", rejected.status, 404);
+    eq(
+      "拒否されたコメントは保存されない",
+      await prisma.clipComment.count({
+        where: { clipId: orphanedClip.id },
+      }),
+      0,
+    );
+  }
+
   // ---- 時刻アンカー -------------------------------------------------------
   console.log("\n時刻アンカー atMs");
   {

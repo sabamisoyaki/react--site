@@ -106,3 +106,55 @@ test("extension comment smoke fixture exercises the sub-nine-hour expiry boundar
   );
   assert.match(smoke, /lastSeenAt: new Date\(linkedFixtureNow - 60_000\)/);
 });
+
+test("extension client contract smoke owns its fixtures and requires a CORS origin", () => {
+  const smoke = readFileSync(
+    "tests/smoke/extension-client.contract.mts",
+    "utf8",
+  );
+  const originGuard = sourceSection(
+    smoke,
+    "const extensionOrigin = resolveExtensionOrigin();",
+    "const entry =",
+  );
+  assert.match(originGuard, /if \(extensionOrigin === null\)/);
+  assert.match(originGuard, /process\.exit\(1\)/);
+  assert.doesNotMatch(smoke, /function skip\(/);
+  assert.match(
+    smoke,
+    /if \(!value\.startsWith\(EXTENSION_ORIGIN_PREFIX\)\) return null/,
+  );
+  assert.match(
+    smoke,
+    /value === `\$\{EXTENSION_ORIGIN_PREFIX\}\*`[\s\S]*SYNTHETIC_EXTENSION_ID/,
+  );
+
+  const fixtureSetup = sourceSection(
+    smoke,
+    "const fixtureNonce = randomUUID();",
+    "seedAuth();",
+  );
+  assertAppearsInOrder(fixtureSetup, [
+    "prisma.$transaction",
+    "tx.user.create",
+    "tx.vod.create",
+    "tx.clip.create",
+    "tx.linkedExtension.create",
+  ]);
+  assert.doesNotMatch(fixtureSetup, /findFirst(?:OrThrow)?\(/);
+
+  const cleanup = sourceSection(
+    smoke,
+    '} finally {\n  console.log("\\n後始末");',
+    "process.exitCode =",
+  );
+  assert.match(cleanup, /clipComment\.deleteMany\([\s\S]*clipId: id/);
+  assertAppearsInOrder(cleanup, [
+    "専用コメントの物理削除",
+    "linked_extensionsの物理削除",
+    "専用クリップの物理削除",
+    "専用ユーザーの物理削除",
+    "専用VODの物理削除",
+    "Prisma切断",
+  ]);
+});

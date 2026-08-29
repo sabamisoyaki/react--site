@@ -42,11 +42,16 @@ EXT_REPO=H:/movieClipExtension npm run smoke:extension-client   # 既定値も�
   そのハードコード自体もアサーションの1つ。
 - `Origin` だけは実クライアントで再現できない（Node の fetch は `Origin` を
   送らず、Chrome は `chrome-extension://<id>` を付ける）。この経路のみ生 fetch で
-  `CLIP_API_ALLOWED_ORIGINS` の設定を実測している。
+  `CLIP_API_ALLOWED_ORIGINS` の設定を実測している。検証する拡張オリジンを
+  `SMOKE_EXTENSION_ORIGIN` または `CLIP_API_ALLOWED_ORIGINS` から解決できない場合は、
+  ブラウザで利用可能だと確認できないためスキップせず終了コード 1 で停止する。
 - 拡張リポは webpack でバンドルされるが、このテストは**バンドル前のソース**を
   直接読む。tsx 経由だと拡張の `.js` が CJS として読まれるため
   （拡張の package.json に `type: module` が無い）、ローダーの差を吸収してから
   名前付き export を取り出している。
+- 実データの先頭クリップは使わない。専用の user / VOD / clip / linked extension を
+  1 トランザクションで作り、レスポンス契約が壊れて comment ID を回収できない場合も
+  専用 clip ID でコメントを全件削除する。
 
 #### 既知の失敗: atMs（2 項目）
 
@@ -72,18 +77,23 @@ PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core npm run smoke:ui
 | 変数 | 既定 | 用途 |
 |---|---|---|
 | `SMOKE_BASE` | `http://127.0.0.1:3000` | 対象サーバー |
+| `EXT_REPO` | `H:/movieClipExtension` | `smoke:extension-client` が読み込む拡張リポ |
+| `SMOKE_EXTENSION_ORIGIN` | `CLIP_API_ALLOWED_ORIGINS` 内の最初の `chrome-extension://` エントリ | CORS 契約を検証する拡張オリジン |
 | `PLAYWRIGHT_CORE` | （必須・UI のみ） | playwright-core のパス |
 | `CHROME_PATH` | Windows の既定パス | システム Chrome の実行ファイル |
 | `SMOKE_SHOT_DIR` | OS の一時ディレクトリ | スクリーンショット出力先 |
 
 ## 後始末
 
-各スクリプトは作成したコメント・クリップ・`linked_extensions` 行を `finally` で
-**物理削除**する。異常終了した場合は以下で残骸を確認する:
+各スクリプトは作成したコメント・ユーザー・VOD・クリップ・`linked_extensions` 行を
+`finally` で **物理削除**する。プロセス強制終了などで `finally` 自体が走らなかった
+場合は以下で残骸を確認する:
 
 ```sql
 SELECT count(*) FROM clip_comments;
-SELECT * FROM clips WHERE name LIKE 'smoke-%';
+SELECT * FROM clips WHERE title ILIKE '%smoke%fixture%';
+SELECT * FROM users WHERE email LIKE '%smoke-%@example.invalid';
+SELECT * FROM vods WHERE code LIKE 'smoke-%';
 ```
 
 ## 時刻の検証について

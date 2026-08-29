@@ -78,14 +78,29 @@ async function createCommentWithPolicies(
   atMs?: number | null,
   clientRequestId?: string,
 ) {
-  // 同一ユーザーの同時投稿を直列化して、レート上限を並行リクエストで抜けられないようにする。
-  const activeUser = await lockActiveUser(userId, tx);
-  if (!activeUser) throw new UnauthorizedError();
+  // クリップ所有者が退会済みだと、投稿後の通報・所有者削除ができずモデレーション不能になる。
+  // 先に所有者候補を読み、投稿者と所有者を id 順にロックしてから clip を再検証する。
+  // これで user -> clip の共通順序を守りつつ、所有者削除との競合も直列化できる。
+  const clipOwner = await findActiveOwnerById(clipId, tx);
+  if (!clipOwner) throw new NotFoundError("Clip not found");
 
-  // 冪等な再試行でも、対象クリップが現在も有効であることを先に確認する。
-  // user -> clip の順に固定することで、投稿・通報・解決のロック順も揃う。
+  const lockedUsers = await lockUsersByIdOrder([userId, clipOwner.userId], tx);
+  const usersById = new Map(lockedUsers.map((user) => [String(user.id), user]));
+  const activeUser = usersById.get(String(userId));
+  if (!activeUser || activeUser.deletedAt !== null) {
+    throw new UnauthorizedError();
+  }
+  const owner = usersById.get(String(clipOwner.userId));
+  if (!owner || owner.deletedAt !== null) {
+    throw new NotFoundError("Clip not found");
+  }
+
+  // 冪等な再試行でも、対象クリップと所有者が現在も一致することを先に確認する。
   const clip = await lockActiveById(clipId, tx);
   if (!clip) throw new NotFoundError("Clip not found");
+  if (String(clip.userId) !== String(clipOwner.userId)) {
+    throw new NotFoundError("Clip not found");
+  }
   assertAtMsInClipRange(atMs, clip);
 
   if (clientRequestId) {

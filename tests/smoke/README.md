@@ -44,7 +44,9 @@ EXT_REPO=H:/movieClipExtension npm run smoke:extension-client   # 既定値も�
   送らず、Chrome は `chrome-extension://<id>` を付ける）。この経路のみ生 fetch で
   `CLIP_API_ALLOWED_ORIGINS` の設定を実測している。検証する拡張オリジンを
   `SMOKE_EXTENSION_ORIGIN` または `CLIP_API_ALLOWED_ORIGINS` から解決できない場合は、
-  ブラウザで利用可能だと確認できないためスキップせず終了コード 1 で停止する。
+  ブラウザで利用可能だと確認できないため**失敗として 1 件記録する**（終了コードは 1）。
+  ただしそこで打ち切らず、Origin ブロックだけ飛ばして残りの検証は最後まで走らせる。
+  CORS 設定の不足で、両リポの契約が保たれているかを見失わないため。
 - 拡張リポは webpack でバンドルされるが、このテストは**バンドル前のソース**を
   直接読む。tsx 経由だと拡張の `.js` が CJS として読まれるため
   （拡張の package.json に `type: module` が無い）、ローダーの差を吸収してから

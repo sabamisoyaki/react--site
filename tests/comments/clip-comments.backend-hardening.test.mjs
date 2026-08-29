@@ -106,7 +106,7 @@ test("comment migrations keep Prisma defaults and cascade indexes aligned", () =
   assert.match(commentModel, /@@index\(\[clipId\]\)/);
   assert.match(
     hardeningMigration.replace(/\s+/g, " "),
-    /CREATE INDEX "clip_comments_clip_id_idx" ON "clip_comments"\("clip_id"\);/,
+    /CREATE INDEX IF NOT EXISTS "clip_comments_clip_id_idx" ON "clip_comments"\("clip_id"\);/,
   );
 
   const reportModel = sourceSection(
@@ -117,15 +117,17 @@ test("comment migrations keep Prisma defaults and cascade indexes aligned", () =
   assert.match(reportModel, /@@unique\(\[commentId, reporterId\]\)/);
   assert.match(reportModel, /@@index\(\[reporterId\]\)/);
   assert.doesNotMatch(reportModel, /@@index\(\[commentId\]\)/);
-  // IF EXISTS 付きを要求する。CI に DB が無くマイグレーションはデプロイが初回実行に
-  // なるため、対象が無いだけで落ちる書き方に戻らないよう固定する。
+  // DROP と CREATE の両方にガードを要求する。CI に DB が無くマイグレーションは
+  // デプロイが初回実行になるため、対象が無い / 既にあるだけで落ちる書き方に
+  // 戻らないよう固定する。片側だけ守っても 486bca3 の書き換え版を適用した
+  // 環境では CREATE が "already exists" で落ちる。
   assert.match(
     hardeningMigration,
     /DROP INDEX IF EXISTS "clip_comment_reports_comment_id_idx";/,
   );
   assert.match(
     hardeningMigration.replace(/\s+/g, " "),
-    /CREATE INDEX "clip_comment_reports_reporter_id_idx" ON "clip_comment_reports"\("reporter_id"\);/,
+    /CREATE INDEX IF NOT EXISTS "clip_comment_reports_reporter_id_idx" ON "clip_comment_reports"\("reporter_id"\);/,
   );
 });
 

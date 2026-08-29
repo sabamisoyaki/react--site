@@ -1,9 +1,10 @@
+// biome-ignore-all lint/security/noSecrets: Japanese assertion messages are false positives.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const {
-  acceptsHandoffResult,
+  consumeHandoffResult,
   createHandoffRequestId,
   resetHandoffRequestsForTest,
 } = await import("../../src/lib/extension/handoffRequest.ts");
@@ -12,29 +13,29 @@ test("a result carrying an id we issued is accepted", () => {
   resetHandoffRequestsForTest();
   const id = createHandoffRequestId();
 
-  assert.equal(acceptsHandoffResult(id), true);
+  assert.equal(consumeHandoffResult(id), true);
 });
 
 test("a result from another tab or request is dropped", () => {
   resetHandoffRequestsForTest();
   createHandoffRequestId();
 
-  assert.equal(acceptsHandoffResult("someone-elses-request"), false);
+  assert.equal(consumeHandoffResult("someone-elses-request"), false);
 });
 
 test("a result without a requestId is still shown", () => {
   resetHandoffRequestsForTest();
 
-  assert.equal(acceptsHandoffResult(undefined), true);
-  assert.equal(acceptsHandoffResult(null), true);
+  assert.equal(consumeHandoffResult(undefined), true);
+  assert.equal(consumeHandoffResult(null), true);
 });
 
 test("a malformed requestId is dropped", () => {
   resetHandoffRequestsForTest();
 
-  assert.equal(acceptsHandoffResult(42), false);
-  assert.equal(acceptsHandoffResult(""), false);
-  assert.equal(acceptsHandoffResult("x".repeat(129)), false);
+  assert.equal(consumeHandoffResult(42), false);
+  assert.equal(consumeHandoffResult(""), false);
+  assert.equal(consumeHandoffResult("x".repeat(129)), false);
 });
 
 test("only the most recent ids are retained", () => {
@@ -43,8 +44,40 @@ test("only the most recent ids are retained", () => {
   for (let i = 0; i < 8; i += 1) createHandoffRequestId();
   const last = createHandoffRequestId();
 
-  assert.equal(acceptsHandoffResult(first), false, "古い id は落ちる");
-  assert.equal(acceptsHandoffResult(last), true, "直近の id は残る");
+  assert.equal(consumeHandoffResult(first), false, "古い id は落ちる");
+  assert.equal(consumeHandoffResult(last), true, "直近の id は残る");
+});
+
+test("a late result from an earlier handoff cannot overwrite a newer one", () => {
+  resetHandoffRequestsForTest();
+  const older = createHandoffRequestId();
+  const newer = createHandoffRequestId();
+
+  // 連打して A→B の順に投げ、B→A の順に結果が返る。
+  assert.equal(consumeHandoffResult(newer), true);
+  assert.equal(
+    consumeHandoffResult(older),
+    false,
+    "新しい結果を出した後に届いた古い結果は落ちる",
+  );
+});
+
+test("results arriving in order are both shown", () => {
+  resetHandoffRequestsForTest();
+  const older = createHandoffRequestId();
+  const newer = createHandoffRequestId();
+
+  assert.equal(consumeHandoffResult(older), true);
+  assert.equal(consumeHandoffResult(newer), true, "後続の結果は残る");
+});
+
+test("a result is consumed, so a replayed one is dropped", () => {
+  resetHandoffRequestsForTest();
+  const id = createHandoffRequestId();
+
+  // 契約 §6 の結果は 1 リクエストにつき 1 回だけ。
+  assert.equal(consumeHandoffResult(id), true);
+  assert.equal(consumeHandoffResult(id), false);
 });
 
 test("issued ids stay inside the contract's 1-128 character range", () => {
@@ -67,7 +100,7 @@ test("both playback entry points send a requestId", () => {
 
   assert.match(playback, /requestId: createHandoffRequestId\(\)/);
   assert.match(playlist, /requestId: createHandoffRequestId\(\)/);
-  assert.match(status, /acceptsHandoffResult\(data\.requestId\)/);
+  assert.match(status, /consumeHandoffResult\(data\.requestId\)/);
 });
 
 test("PLAY_PLAYLIST_START names its target origin explicitly", () => {

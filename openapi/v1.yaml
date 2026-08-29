@@ -1079,7 +1079,11 @@ paths:
 
         あれば、自分が所有しないクリップにも投稿できる。POST は last_seen_at を
 
-        更新する。clientRequestId を指定した再試行は同じコメントを返す。投稿は
+        更新する。clientRequestId を指定した再試行は同じコメントを返すが、
+
+        元のコメントが論理削除済みの場合だけは 409 IDEMPOTENCY_KEY_REUSED で
+
+        拒否する（削除済みコメントを復活させないため）。投稿は
 
         ユーザー単位で1分30件まで。
       security:
@@ -1107,7 +1111,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           description: >
-            IDEMPOTENCY_KEY_REUSED（同じ clientRequestId が別の内容で使われた）
+            IDEMPOTENCY_KEY_REUSED（同じ clientRequestId が別の内容で使われた、
+            または同じ内容だが元のコメントが論理削除済み）
             または CLIP_OWNER_RETIRED（クリップ所有者が退会済み）
           content:
             application/json:
@@ -1990,7 +1995,9 @@ paths:
 
         （拡張API と同じ可視性）。clientRequestId を指定した再試行は同じコメントを
 
-        返す。投稿はユーザー単位で1分30件まで。コメントは別操作で論理削除できる。
+        返すが、元のコメントが論理削除済みの場合だけは 409
+
+        IDEMPOTENCY_KEY_REUSED で拒否する（削除済みコメントを復活させないため）。投稿はユーザー単位で1分30件まで。コメントは別操作で論理削除できる。
 
         クリップ所有者が退会している場合、そのクリップは引き続き読めるが新規投稿は
 
@@ -2020,7 +2027,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           description: >
-            IDEMPOTENCY_KEY_REUSED（同じ clientRequestId が別の内容で使われた）
+            IDEMPOTENCY_KEY_REUSED（同じ clientRequestId が別の内容で使われた、
+            または同じ内容だが元のコメントが論理削除済み）
             または CLIP_OWNER_RETIRED（クリップ所有者が退会済み）
           content:
             application/json:

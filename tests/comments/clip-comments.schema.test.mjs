@@ -500,3 +500,36 @@ test("OpenAPI documents raw comment text limits and mutation conflicts", () => {
     /"409":\s+\$ref: "#\/components\/responses\/Conflict"/,
   );
 });
+
+test("OpenAPI documents the deleted-comment idempotency conflict", () => {
+  const spec = readFileSync("openapi/v1.yaml", "utf8");
+
+  // replayExistingComment は deletedAt != null を「中身が違う」枝に入れ、
+  // 同じ内容の再送でも IDEMPOTENCY_KEY_REUSED を返す。409 の説明が
+  // 「別の内容で使われた」だけだと、正当な 409 を取り違えさせる。
+  const conflictNote = /論理削除済み/;
+
+  const extensionPost = sourceSection(
+    spec,
+    "operationId: extension.clips.comments.create",
+    "operationId: users.meGet",
+  );
+  const sitePost = sourceSection(
+    spec,
+    "operationId: clips.comments.create",
+    '"/clips/{clipId}/comments/{commentId}"',
+  );
+
+  for (const [name, section] of [
+    ["extension", extensionPost],
+    ["v1", sitePost],
+  ]) {
+    // 再試行の約束と 409 の説明、両方が削除済みケースに触れていること。
+    assert.match(section, conflictNote, `${name}: 再試行の説明`);
+    assert.match(
+      section,
+      /IDEMPOTENCY_KEY_REUSED（同じ clientRequestId が別の内容で使われた、[\s\S]*?論理削除済み）/,
+      `${name}: 409 の説明`,
+    );
+  }
+});

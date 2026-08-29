@@ -75,7 +75,11 @@ const COMMENT_RATE_LIMIT_PER_MINUTE = 30;
  *
  * 同じキーで中身が違うものは取り違えなので拒否する。呼び出し側は所有者の
  * 状態を見る前にこれを通すこと。既に成功している投稿の再送は、その後の
- * 所有者退会やクリップ状態に関係なく同じ結果を返さなければならない。
+ * 所有者退会やクリップ状態に関係なく同じ結果を返す。
+ *
+ * 唯一の例外が論理削除済みのときで、中身が同じでも IDEMPOTENCY_KEY_REUSED で
+ * 拒否する。削除済みコメントを黙って復活させることも、同じキーで作り直すことも
+ * できないため。OpenAPI の 409 説明もこのケースを含めて書いてある。
  */
 async function replayExistingComment(
   tx: Prisma.TransactionClient,

@@ -25,8 +25,11 @@ export function findById(id: number) {
   return prisma.clip.findFirst({ where: { id, deletedAt: null } });
 }
 
-export function findActiveOwnerById(id: number) {
-  return prisma.clip.findFirst({
+export function findActiveOwnerById(
+  id: number,
+  db: Prisma.TransactionClient = prisma,
+) {
+  return db.clip.findFirst({
     where: { id, deletedAt: null },
     select: { userId: true },
   });

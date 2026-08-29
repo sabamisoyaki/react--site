@@ -44,7 +44,7 @@ jobs:
         run: npx biome check .
 
       - name: Type check
-        run: npx tsc --noEmit --incremental false
+        run: npm run typecheck
 
       - name: Test
         run: npm test

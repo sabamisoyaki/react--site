@@ -1106,7 +1106,13 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/Conflict"
+          description: >
+            IDEMPOTENCY_KEY_REUSED（同じ clientRequestId が別の内容で使われた）
+            または CLIP_OWNER_RETIRED（クリップ所有者が退会済み）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           description: Comment rate limit exceeded
           content:
@@ -1985,6 +1991,12 @@ paths:
         （拡張API と同じ可視性）。clientRequestId を指定した再試行は同じコメントを
 
         返す。投稿はユーザー単位で1分30件まで。コメントは別操作で論理削除できる。
+
+        クリップ所有者が退会している場合、そのクリップは引き続き読めるが新規投稿は
+
+        409 CLIP_OWNER_RETIRED で拒否する（投稿後の通報も所有者削除もできず
+
+        モデレーション不能になるため）。
       security:
         - nextAuthSession: []
       requestBody:
@@ -2007,7 +2019,13 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          $ref: "#/components/responses/Conflict"
+          description: >
+            IDEMPOTENCY_KEY_REUSED（同じ clientRequestId が別の内容で使われた）
+            または CLIP_OWNER_RETIRED（クリップ所有者が退会済み）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           description: Comment rate limit exceeded
           content:

@@ -71,6 +71,7 @@ async function cleanupStep(label: string, operation: () => Promise<void>) {
 const createdCommentIds: bigint[] = [];
 let deletedClipId: number | null = null;
 let fixtureClipId: bigint | null = null;
+let orphanedClipId: bigint | null = null;
 const createdUserIds: bigint[] = [];
 let ownerUserId: number;
 let otherUserId: number;
@@ -430,6 +431,58 @@ try {
       "既存冪等行があっても論理削除クリップは 404",
       deletedClipReplay.status,
       404,
+    );
+  }
+
+  // ---- 退会済みクリップ所有者 -------------------------------------------
+  console.log("\n退会済みクリップ所有者");
+  {
+    const retiredOwner = await prisma.user.create({
+      data: {
+        name: "smoke-retired-comment-owner",
+        email: `smoke-retired-comment-owner-${Date.now()}-${crypto.randomUUID()}@example.invalid`,
+      },
+      select: { id: true },
+    });
+    createdUserIds.push(retiredOwner.id);
+
+    const orphanedClip = await prisma.clip.create({
+      data: {
+        userId: retiredOwner.id,
+        vodId: vod.id,
+        name: `退会所有者コメント拒否 ${crypto.randomUUID()}`,
+        // README の残骸検索 (title ILIKE '%smoke%fixture%') に引っかかる名前にする。
+        title: "smoke retired owner comment rejection fixture",
+        startMs: 0,
+        endMs: 1_000,
+        url: "https://www.netflix.com/watch/1",
+      },
+      select: { id: true },
+    });
+    // FK の ON DELETE CASCADE 頼みにしない。ユーザー後始末が失敗しても、
+    // また将来ユーザー削除が論理削除に変わっても、このクリップを残さない。
+    orphanedClipId = orphanedClip.id;
+    await prisma.user.update({
+      where: { id: retiredOwner.id },
+      data: { deletedAt: new Date() },
+    });
+
+    const rejected = await req(
+      `/api/v1/clips/${Number(orphanedClip.id)}/comments`,
+      {
+        method: "POST",
+        cookie: authCookie,
+        body: JSON.stringify({ body: "モデレーション不能になる投稿" }),
+      },
+    );
+    eq("所有者が退会済みの active clip への投稿は 409", rejected.status, 409);
+    eq("理由が分かるコードを返す", rejected.json?.code, "CLIP_OWNER_RETIRED");
+    eq(
+      "拒否されたコメントは保存されない",
+      await prisma.clipComment.count({
+        where: { clipId: orphanedClip.id },
+      }),
+      0,
     );
   }
 
@@ -971,6 +1024,14 @@ try {
       await prisma.clipComment.deleteMany({ where: { clipId: id } });
       await prisma.clip.delete({ where: { id } });
       console.log(`  専用クリップを物理削除: ${id}`);
+    });
+  }
+  if (orphanedClipId != null) {
+    const id = orphanedClipId;
+    await cleanupStep("退会所有者クリップfixtureの物理削除", async () => {
+      await prisma.clipComment.deleteMany({ where: { clipId: id } });
+      await prisma.clip.deleteMany({ where: { id } });
+      console.log(`  退会所有者クリップを物理削除: ${id}`);
     });
   }
   for (const createdUserId of createdUserIds) {

@@ -106,3 +106,62 @@ test("extension comment smoke fixture exercises the sub-nine-hour expiry boundar
   );
   assert.match(smoke, /lastSeenAt: new Date\(linkedFixtureNow - 60_000\)/);
 });
+
+test("extension client contract smoke owns its fixtures and requires a CORS origin", () => {
+  const smoke = readFileSync(
+    "tests/smoke/extension-client.contract.mts",
+    "utf8",
+  );
+  // 解決できないことは失敗として記録するが、そこで打ち切らない。import 時に
+  // exit すると CORS と無関係な検証が 1 件も走らず、サマリ行も出ないため
+  // 両リポの契約が保たれているかを判断できなくなる。
+  const originSection = sourceSection(
+    smoke,
+    "Origin ゲート（実クライアントでは再現できない範囲）",
+    "401 と拡張側の副作用",
+  );
+  assert.match(originSection, /if \(extensionOrigin === null\)/);
+  assert.match(
+    originSection,
+    /check\(\s*"CORS 検証用の拡張オリジンを解決できる",\s*false/,
+  );
+  assert.doesNotMatch(originSection, /process\.exit\(/);
+  assert.doesNotMatch(smoke, /function skip\(/);
+  assert.match(
+    smoke,
+    /if \(!value\.startsWith\(EXTENSION_ORIGIN_PREFIX\)\) return null/,
+  );
+  assert.match(
+    smoke,
+    /value === `\$\{EXTENSION_ORIGIN_PREFIX\}\*`[\s\S]*SYNTHETIC_EXTENSION_ID/,
+  );
+
+  const fixtureSetup = sourceSection(
+    smoke,
+    "const fixtureNonce = randomUUID();",
+    "seedAuth();",
+  );
+  assertAppearsInOrder(fixtureSetup, [
+    "prisma.$transaction",
+    "tx.user.create",
+    "tx.vod.create",
+    "tx.clip.create",
+    "tx.linkedExtension.create",
+  ]);
+  assert.doesNotMatch(fixtureSetup, /findFirst(?:OrThrow)?\(/);
+
+  const cleanup = sourceSection(
+    smoke,
+    '} finally {\n  console.log("\\n後始末");',
+    "process.exitCode =",
+  );
+  assert.match(cleanup, /clipComment\.deleteMany\([\s\S]*clipId: id/);
+  assertAppearsInOrder(cleanup, [
+    "専用コメントの物理削除",
+    "linked_extensionsの物理削除",
+    "専用クリップの物理削除",
+    "専用ユーザーの物理削除",
+    "専用VODの物理削除",
+    "Prisma切断",
+  ]);
+});

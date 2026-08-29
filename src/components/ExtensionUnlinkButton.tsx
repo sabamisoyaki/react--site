@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { unlinkExtensionFromCurrentUser } from "@/lib/extension/client";
 
 type Status = "idle" | "loading" | "error";
 
@@ -13,14 +14,6 @@ type Props = {
   linkedExtensionId: number;
   extensionInstanceId: string;
 };
-
-function createRequestId() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 export function ExtensionUnlinkButton({
   linkedExtensionId,
@@ -39,28 +32,9 @@ export function ExtensionUnlinkButton({
     setMessage("");
 
     try {
-      const res = await fetch("/api/extension/unlink", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ linkedExtensionId }),
-      });
-
-      const body = await res.json();
-      if (!res.ok) {
-        throw new Error(body.message || "Failed to unlink extension");
-      }
-
-      // このブラウザの拡張が対象なら、ローカルのトークンも即時破棄させる。
-      // 別ブラウザの連携を解除した場合は instanceId 不一致で拡張側が無視し、
-      // そちらは次回同期の 401 で自己修復される。
-      window.postMessage(
-        {
-          type: "EXTENSION_UNLINKED",
-          requestId: createRequestId(),
-          extensionInstanceId: body.extensionInstanceId ?? extensionInstanceId,
-        },
-        window.location.origin,
+      await unlinkExtensionFromCurrentUser(
+        linkedExtensionId,
+        extensionInstanceId,
       );
 
       router.refresh();

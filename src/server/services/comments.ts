@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/server/db";
+import { isActive, lockActorAndClipOwner } from "@/server/domain/locking";
 import {
   BadRequestError,
   ConflictError,
@@ -26,7 +27,6 @@ import {
   resolveClipCommentReports,
   softDeleteClipComment,
 } from "@/server/repositories/comments";
-import { lockUsersByIdOrder } from "@/server/repositories/users";
 import { authenticateLinkedExtension } from "@/server/services/extensions";
 
 type CommentWithUsername = {
@@ -70,6 +70,44 @@ function toSafeId(value: bigint, field: string) {
 
 const COMMENT_RATE_LIMIT_PER_MINUTE = 30;
 
+/**
+ * clientRequestId が既に使われていれば、その投稿をそのまま返す。
+ *
+ * 同じキーで中身が違うものは取り違えなので拒否する。呼び出し側は所有者の
+ * 状態を見る前にこれを通すこと。既に成功している投稿の再送は、その後の
+ * 所有者退会やクリップ状態に関係なく同じ結果を返さなければならない。
+ */
+async function replayExistingComment(
+  tx: Prisma.TransactionClient,
+  params: {
+    userId: number;
+    clipId: number;
+    clientRequestId: string;
+    body: string;
+    atMs?: number | null;
+  },
+) {
+  const existing = await findClipCommentByClientRequestId(
+    params.userId,
+    params.clientRequestId,
+    tx,
+  );
+  if (!existing) return null;
+
+  if (
+    existing.deletedAt != null ||
+    String(existing.clipId) !== String(params.clipId) ||
+    existing.body !== params.body ||
+    existing.atMs !== (params.atMs ?? null)
+  ) {
+    throw new ConflictError(
+      "Idempotency key was already used for a different comment",
+      "IDEMPOTENCY_KEY_REUSED",
+    );
+  }
+  return existing;
+}
+
 async function createCommentWithPolicies(
   tx: Prisma.TransactionClient,
   userId: number,
@@ -78,37 +116,40 @@ async function createCommentWithPolicies(
   atMs?: number | null,
   clientRequestId?: string,
 ) {
-  // 同一ユーザーの同時投稿を直列化して、レート上限を並行リクエストで抜けられないようにする。
-  const activeUser = await lockActiveUser(userId, tx);
-  if (!activeUser) throw new UnauthorizedError();
+  // 先に所有者候補を読み、投稿者と所有者を id 順にロックしてから clip を再検証する。
+  // これで user -> clip の共通順序を守りつつ、所有者退会との競合も防げる。
+  const clipOwner = await findActiveOwnerById(clipId, tx);
+  if (!clipOwner) throw new NotFoundError("Clip not found");
 
-  // 冪等な再試行でも、対象クリップが現在も有効であることを先に確認する。
-  // user -> clip の順に固定することで、投稿・通報・解決のロック順も揃う。
+  const locked = await lockActorAndClipOwner(userId, clipOwner.userId, tx);
+  if (!isActive(locked.actor)) throw new UnauthorizedError();
+
+  // 冪等な再試行は所有者の状態より先に見る。既に成功した投稿の再送が、
+  // その後の所有者退会で 404 になると冪等性の契約が壊れる。
+  if (clientRequestId) {
+    const replayed = await replayExistingComment(tx, {
+      userId,
+      clipId,
+      clientRequestId,
+      body,
+      atMs,
+    });
+    if (replayed) return replayed;
+  }
+
+  // 所有者が退会済みだと、投稿後の通報も所有者による削除もできずモデレーション
+  // 不能になるため、新規投稿だけを止める。読み取り経路はこのクリップを 200 で
+  // 配信し続けるので、「存在しない」ではなく理由が分かるコードで返す。
+  if (!isActive(locked.owner)) {
+    throw new ConflictError("Clip owner has retired", "CLIP_OWNER_RETIRED");
+  }
+
   const clip = await lockActiveById(clipId, tx);
   if (!clip) throw new NotFoundError("Clip not found");
-  assertAtMsInClipRange(atMs, clip);
-
-  if (clientRequestId) {
-    const existing = await findClipCommentByClientRequestId(
-      userId,
-      clientRequestId,
-      tx,
-    );
-    if (existing) {
-      if (
-        existing.deletedAt != null ||
-        String(existing.clipId) !== String(clipId) ||
-        existing.body !== body ||
-        existing.atMs !== (atMs ?? null)
-      ) {
-        throw new ConflictError(
-          "Idempotency key was already used for a different comment",
-          "IDEMPOTENCY_KEY_REUSED",
-        );
-      }
-      return existing;
-    }
+  if (String(clip.userId) !== String(clipOwner.userId)) {
+    throw new NotFoundError("Clip not found");
   }
+  assertAtMsInClipRange(atMs, clip);
 
   const since = new Date(Date.now() - 60_000);
   const recentCount = await countRecentClipCommentsByUser(userId, since, tx);
@@ -325,21 +366,9 @@ export async function reportClipComment(
 
   try {
     const report = await prisma.$transaction(async (tx) => {
-      const lockedUsers = await lockUsersByIdOrder(
-        [userId, clipOwner.userId],
-        tx,
-      );
-      const usersById = new Map(
-        lockedUsers.map((user) => [String(user.id), user]),
-      );
-      const reporter = usersById.get(String(userId));
-      if (!reporter || reporter.deletedAt !== null) {
-        throw new UnauthorizedError();
-      }
-      const owner = usersById.get(String(clipOwner.userId));
-      if (!owner || owner.deletedAt !== null) {
-        throw new NotFoundError("Clip not found");
-      }
+      const locked = await lockActorAndClipOwner(userId, clipOwner.userId, tx);
+      if (!isActive(locked.actor)) throw new UnauthorizedError();
+      if (!isActive(locked.owner)) throw new NotFoundError("Clip not found");
 
       const comment = await lockClipCommentForModeration(clipId, commentId, tx);
       if (!comment) throw new NotFoundError("Comment not found");

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { linkExtensionToCurrentUser } from "@/lib/extension/client";
+import { linkExtensionToCurrentUserFromUserAction } from "@/lib/extension/client";
 
 type Status = "idle" | "loading" | "success" | "error";
 
@@ -39,7 +39,7 @@ export function ExtensionLinkButton() {
     setMessage("");
 
     try {
-      await linkExtensionToCurrentUser();
+      await linkExtensionToCurrentUserFromUserAction();
       setStatus("success");
       setMessage(MESSAGE_SUCCESS);
     } catch (err) {

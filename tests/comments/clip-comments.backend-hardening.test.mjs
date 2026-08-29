@@ -158,7 +158,7 @@ test("comment hardening migration trims JavaScript Unicode whitespace", () => {
   assert.doesNotMatch(migration, /char_length\(btrim\("body"\)\)/);
 });
 
-test("comment mutations use the common user -> clip -> comment lock order", () => {
+test("comment mutations use the common lock order and creation requires an active owner", () => {
   const service = readFileSync("src/server/services/comments.ts", "utf8");
   const repository = readFileSync(
     "src/server/repositories/comments.ts",
@@ -170,11 +170,32 @@ test("comment mutations use the common user -> clip -> comment lock order", () =
     "async function createCommentWithPolicies",
     "async function assertClipIsActive",
   );
+  // 冪等リプレイは所有者チェックより前。既に成功した投稿の再送が、その後の
+  // 所有者退会で失敗に変わると冪等性の契約が壊れる。
   assertAppearsInOrder(create, [
-    "lockActiveUser",
+    "findActiveOwnerById",
+    "lockActorAndClipOwner",
+    "isActive(locked.actor)",
+    "replayExistingComment",
+    "isActive(locked.owner)",
     "lockActiveById",
-    "findClipCommentByClientRequestId",
+    "clip.userId",
   ]);
+  assert.match(
+    create,
+    /lockActorAndClipOwner\(userId, clipOwner\.userId, tx\)/,
+  );
+  // 退会した所有者のクリップは読み取り経路が 200 で配信し続けるため、
+  // 投稿だけを止める理由が伝わるコードで返す。404 に戻してはいけない。
+  assert.match(
+    create,
+    /if \(!isActive\(locked\.owner\)\) \{\s*throw new ConflictError\(/,
+  );
+  assert.match(create, /"CLIP_OWNER_RETIRED"/);
+  assert.match(
+    create,
+    /if \(String\(clip\.userId\) !== String\(clipOwner\.userId\)\) \{\s*throw new NotFoundError\("Clip not found"\)/,
+  );
 
   const deletion = sourceSection(
     service,
@@ -196,7 +217,7 @@ test("comment mutations use the common user -> clip -> comment lock order", () =
   );
   assertAppearsInOrder(report, [
     "findActiveOwnerById",
-    "lockUsersByIdOrder",
+    "lockActorAndClipOwner",
     "lockClipCommentForModeration",
     "createClipCommentReport",
   ]);

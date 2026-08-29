@@ -166,22 +166,28 @@ test("comment mutations use the common lock order and creation requires an activ
     "async function createCommentWithPolicies",
     "async function assertClipIsActive",
   );
+  // 冪等リプレイは所有者チェックより前。既に成功した投稿の再送が、その後の
+  // 所有者退会で失敗に変わると冪等性の契約が壊れる。
   assertAppearsInOrder(create, [
     "findActiveOwnerById",
-    "lockUsersByIdOrder",
-    "owner.deletedAt !== null",
+    "lockActorAndClipOwner",
+    "isActive(locked.actor)",
+    "replayExistingComment",
+    "isActive(locked.owner)",
     "lockActiveById",
     "clip.userId",
-    "findClipCommentByClientRequestId",
   ]);
   assert.match(
     create,
-    /lockUsersByIdOrder\([\s\S]*userId,[\s\S]*clipOwner\.userId/,
+    /lockActorAndClipOwner\(userId, clipOwner\.userId, tx\)/,
   );
+  // 退会した所有者のクリップは読み取り経路が 200 で配信し続けるため、
+  // 投稿だけを止める理由が伝わるコードで返す。404 に戻してはいけない。
   assert.match(
     create,
-    /if \(!owner \|\| owner\.deletedAt !== null\) \{\s*throw new NotFoundError\("Clip not found"\)/,
+    /if \(!isActive\(locked\.owner\)\) \{\s*throw new ConflictError\(/,
   );
+  assert.match(create, /"CLIP_OWNER_RETIRED"/);
   assert.match(
     create,
     /if \(String\(clip\.userId\) !== String\(clipOwner\.userId\)\) \{\s*throw new NotFoundError\("Clip not found"\)/,
@@ -207,7 +213,7 @@ test("comment mutations use the common lock order and creation requires an activ
   );
   assertAppearsInOrder(report, [
     "findActiveOwnerById",
-    "lockUsersByIdOrder",
+    "lockActorAndClipOwner",
     "lockClipCommentForModeration",
     "createClipCommentReport",
   ]);

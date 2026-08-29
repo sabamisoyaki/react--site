@@ -64,9 +64,17 @@ function toConcreteExtensionOrigin(
 }
 
 function resolveExtensionOrigin(): { origin: string; source: string } | null {
+  // 明示指定は素通しする。ワイルドカードだけは合成IDへ展開するが、それ以外は
+  // 検証しない。Firefox の moz-extension:// を当てる、素の http オリジンで
+  // 疎通だけ見る、といった使い方を塞ぐ理由がない。
   const explicit = process.env.SMOKE_EXTENSION_ORIGIN?.trim();
   if (explicit) {
-    return toConcreteExtensionOrigin(explicit, "SMOKE_EXTENSION_ORIGIN");
+    return (
+      toConcreteExtensionOrigin(explicit, "SMOKE_EXTENSION_ORIGIN") ?? {
+        origin: explicit,
+        source: "SMOKE_EXTENSION_ORIGIN",
+      }
+    );
   }
 
   const configured = (process.env.CLIP_API_ALLOWED_ORIGINS ?? "")
@@ -74,27 +82,36 @@ function resolveExtensionOrigin(): { origin: string; source: string } | null {
     .map((value) => value.trim())
     .filter((value) => value.startsWith(EXTENSION_ORIGIN_PREFIX));
 
-  if (configured.length === 0) return null;
+  // ワイルドカードは位置に関係なく優先する（開発設定として明示的だから）。
+  // 無ければ先頭から順に、実際に変換できた最初のエントリを採る。先頭固定だと
+  // "chrome-extension://" のような壊れた値が 1 つあるだけで、すぐ隣の有効な
+  // エントリを取り逃す。
   const wildcard = configured.find(
     (value) => value === `${EXTENSION_ORIGIN_PREFIX}*`,
   );
-  return toConcreteExtensionOrigin(
-    wildcard ?? configured[0],
-    "CLIP_API_ALLOWED_ORIGINS",
-  );
+  if (wildcard) {
+    return toConcreteExtensionOrigin(wildcard, "CLIP_API_ALLOWED_ORIGINS");
+  }
+
+  for (const value of configured) {
+    const resolved = toConcreteExtensionOrigin(
+      value,
+      "CLIP_API_ALLOWED_ORIGINS",
+    );
+    if (resolved) return resolved;
+  }
+  return null;
 }
 
+// 解決できなくても即 exit しない。ここで打ち切ると、リンク往復・カーソル・
+// atMs 契約・401 のトークン破棄など CORS と無関係な検証が 1 件も走らず、
+// サマリ行すら出ないため「両リポの契約が保たれているか」を判断できない。
+// 失敗は Origin セクションで 1 件の赤として記録し、そこだけ飛ばす。
 const extensionOrigin = resolveExtensionOrigin();
-
-if (extensionOrigin === null) {
-  console.error(
-    "CORS 検証用の chrome-extension:// オリジンを解決できない。\n" +
-      "SMOKE_EXTENSION_ORIGIN を指定するか、CLIP_API_ALLOWED_ORIGINS に " +
-      "chrome-extension://<id>（開発時は chrome-extension://*）を設定する。\n" +
-      "ブラウザから利用できることを確認できないため、この契約スモークは失敗扱い。",
-  );
-  process.exit(1);
-}
+const UNRESOLVED_ORIGIN_DETAIL =
+  "SMOKE_EXTENSION_ORIGIN を指定するか、CLIP_API_ALLOWED_ORIGINS に " +
+  "chrome-extension://<id>（開発時は chrome-extension://*）を設定する。" +
+  "ブラウザから利用できることを確認できないため失敗扱いにする。";
 
 const entry = `${EXT_REPO}/src/background/comments.js`;
 if (!existsSync(entry)) {
@@ -541,22 +558,31 @@ try {
         headers: { authorization: `Bearer ${token}`, origin },
       });
 
-    const allowed = await withOrigin(extensionOrigin.origin);
+    if (extensionOrigin === null) {
+      // 解決できないこと自体を 1 件の赤にする。以降の検証は続行する。
+      check(
+        "CORS 検証用の拡張オリジンを解決できる",
+        false,
+        UNRESOLVED_ORIGIN_DETAIL,
+      );
+    } else {
+      const allowed = await withOrigin(extensionOrigin.origin);
 
-    // status !== 403 だけだと 401/404/500 も「許可」と読めてしまう。
-    // この生 fetch はブラウザ専用経路の代替なので、Chrome が実際に
-    // レスポンスを読める条件（成功 + ACAO 一致）まで見る。
-    eq("拡張オリジンでも 200 が返る", allowed.status, 200);
-    eq(
-      "Access-Control-Allow-Origin が送ったオリジンと一致する",
-      allowed.headers.get("access-control-allow-origin"),
-      extensionOrigin.origin,
-    );
-    eq(
-      "資格情報付きリクエストを許可している",
-      allowed.headers.get("access-control-allow-credentials"),
-      "true",
-    );
+      // status !== 403 だけだと 401/404/500 も「許可」と読めてしまう。
+      // この生 fetch はブラウザ専用経路の代替なので、Chrome が実際に
+      // レスポンスを読める条件（成功 + ACAO 一致）まで見る。
+      eq("拡張オリジンでも 200 が返る", allowed.status, 200);
+      eq(
+        "Access-Control-Allow-Origin が送ったオリジンと一致する",
+        allowed.headers.get("access-control-allow-origin"),
+        extensionOrigin.origin,
+      );
+      eq(
+        "資格情報付きリクエストを許可している",
+        allowed.headers.get("access-control-allow-credentials"),
+        "true",
+      );
+    }
 
     const denied = await withOrigin("https://evil.example");
     eq("無関係なオリジンは 403", denied.status, 403);

@@ -1,6 +1,7 @@
 import { parseKeywords, rankByKeywords } from "@/lib/search/utils";
 import { prisma } from "@/server/db";
 import { resolveClipRange } from "@/server/domain/clips";
+import { isActive, lockActorAndClipOwner } from "@/server/domain/locking";
 import {
   BadRequestError,
   ConflictError,
@@ -10,7 +11,6 @@ import {
 } from "@/server/http/errors";
 import * as repo from "@/server/repositories/clips";
 import { resolveClipCommentReportsForClips } from "@/server/repositories/comments";
-import { lockUsersByIdOrder } from "@/server/repositories/users";
 
 export async function listClips(opts: Parameters<typeof repo.list>[0]) {
   const result = await repo.list(opts);
@@ -111,21 +111,15 @@ export async function deleteClip(
   if (!clipOwner) throw new NotFoundError("Clip not found");
 
   return prisma.$transaction(async (tx) => {
-    const lockedUsers = await lockUsersByIdOrder(
-      [currentUserId, clipOwner.userId],
+    // 所有者のクリップを実際に書き換えるので、所有者側も排他で取る。
+    const locked = await lockActorAndClipOwner(
+      currentUserId,
+      clipOwner.userId,
       tx,
+      "update",
     );
-    const usersById = new Map(
-      lockedUsers.map((user) => [String(user.id), user]),
-    );
-    const currentUser = usersById.get(String(currentUserId));
-    if (!currentUser || currentUser.deletedAt !== null) {
-      throw new UnauthorizedError();
-    }
-    const owner = usersById.get(String(clipOwner.userId));
-    if (!owner || owner.deletedAt !== null) {
-      throw new NotFoundError("Clip not found");
-    }
+    if (!isActive(locked.actor)) throw new UnauthorizedError();
+    if (!isActive(locked.owner)) throw new NotFoundError("Clip not found");
 
     const clip = await repo.lockActiveById(id, tx);
     if (!clip) throw new NotFoundError("Clip not found");

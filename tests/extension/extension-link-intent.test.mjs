@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import extensionClientModule from "../../src/lib/extension/client.ts";
-
+// リポの他テストと同じ interop 耐性のある形にする。静的な default import は
+// client.ts が default を持たないため、tsx が CJS へ落としている現在だけ通る。
+// package.json に type: module が付くか tsx が真の ESM を吐いた時点で、
+// このファイルだけでなく npm test 全体がリンク時 SyntaxError で落ちる。
+const extensionClientModule = await import("../../src/lib/extension/client.ts");
 const {
   linkExtensionToCurrentUserFromUserAction,
   unlinkExtensionFromCurrentUser,
-} = extensionClientModule;
+} = extensionClientModule.default ?? extensionClientModule;
 
 const CURRENT_INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_INSTANCE_ID = "22222222-2222-4222-8222-222222222222";

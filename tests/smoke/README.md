@@ -78,7 +78,7 @@ PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core npm run smoke:ui
 |---|---|---|
 | `SMOKE_BASE` | `http://127.0.0.1:3000` | 対象サーバー |
 | `EXT_REPO` | `H:/movieClipExtension` | `smoke:extension-client` が読み込む拡張リポ |
-| `SMOKE_EXTENSION_ORIGIN` | `CLIP_API_ALLOWED_ORIGINS` 内の最初の `chrome-extension://` エントリ | CORS 契約を検証する拡張オリジン |
+| `SMOKE_EXTENSION_ORIGIN` | `CLIP_API_ALLOWED_ORIGINS` に `chrome-extension://*` があればそれを合成IDへ展開、無ければ変換できた最初の `chrome-extension://` エントリ | CORS 契約を検証する拡張オリジン。明示指定した値はそのまま使う |
 | `PLAYWRIGHT_CORE` | （必須・UI のみ） | playwright-core のパス |
 | `CHROME_PATH` | Windows の既定パス | システム Chrome の実行ファイル |
 | `SMOKE_SHOT_DIR` | OS の一時ディレクトリ | スクリーンショット出力先 |

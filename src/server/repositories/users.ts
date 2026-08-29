@@ -6,6 +6,8 @@ export function findById(id: number) {
   return prisma.user.findUnique({ where: { id } });
 }
 
+export type UserLockRow = { id: bigint; deletedAt: Date | null };
+
 export async function lockUsersByIdOrder(
   userIds: readonly (number | bigint)[],
   db: Prisma.TransactionClient,
@@ -13,7 +15,7 @@ export async function lockUsersByIdOrder(
   const uniqueUserIds = [...new Set(userIds.map((id) => BigInt(id)))];
   if (uniqueUserIds.length === 0) return [];
 
-  return db.$queryRaw<Array<{ id: bigint; deletedAt: Date | null }>>`
+  return db.$queryRaw<UserLockRow[]>`
     SELECT
       id,
       deleted_at AS "deletedAt"
@@ -21,6 +23,31 @@ export async function lockUsersByIdOrder(
     WHERE id = ANY(${uniqueUserIds}::bigint[])
     ORDER BY id ASC
     FOR UPDATE
+  `;
+}
+
+/**
+ * 退会の有無だけを見るための共有ロック。
+ *
+ * FOR SHARE は退会処理の UPDATE（FOR NO KEY UPDATE を取る）とは競合するため、
+ * 「処理中に対象ユーザーが退会する」競合は FOR UPDATE と同じように防げる。
+ * 一方 FOR SHARE 同士は競合しないので、同じ行を見るだけの処理が互いに待たない。
+ */
+export async function shareLockUsersByIdOrder(
+  userIds: readonly (number | bigint)[],
+  db: Prisma.TransactionClient,
+) {
+  const uniqueUserIds = [...new Set(userIds.map((id) => BigInt(id)))];
+  if (uniqueUserIds.length === 0) return [];
+
+  return db.$queryRaw<UserLockRow[]>`
+    SELECT
+      id,
+      deleted_at AS "deletedAt"
+    FROM users
+    WHERE id = ANY(${uniqueUserIds}::bigint[])
+    ORDER BY id ASC
+    FOR SHARE
   `;
 }
 

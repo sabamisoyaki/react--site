@@ -112,13 +112,20 @@ test("extension client contract smoke owns its fixtures and requires a CORS orig
     "tests/smoke/extension-client.contract.mts",
     "utf8",
   );
-  const originGuard = sourceSection(
+  // 解決できないことは失敗として記録するが、そこで打ち切らない。import 時に
+  // exit すると CORS と無関係な検証が 1 件も走らず、サマリ行も出ないため
+  // 両リポの契約が保たれているかを判断できなくなる。
+  const originSection = sourceSection(
     smoke,
-    "const extensionOrigin = resolveExtensionOrigin();",
-    "const entry =",
+    "Origin ゲート（実クライアントでは再現できない範囲）",
+    "401 と拡張側の副作用",
   );
-  assert.match(originGuard, /if \(extensionOrigin === null\)/);
-  assert.match(originGuard, /process\.exit\(1\)/);
+  assert.match(originSection, /if \(extensionOrigin === null\)/);
+  assert.match(
+    originSection,
+    /check\(\s*"CORS 検証用の拡張オリジンを解決できる",\s*false/,
+  );
+  assert.doesNotMatch(originSection, /process\.exit\(/);
   assert.doesNotMatch(smoke, /function skip\(/);
   assert.match(
     smoke,

@@ -32,16 +32,16 @@ test("report creation locks reporter and owner before the clip and rejects a del
   assertAppearsInOrder(report, [
     "findActiveOwnerById",
     "prisma.$transaction",
-    "lockUsersByIdOrder",
-    "reporter.deletedAt !== null",
-    "owner.deletedAt !== null",
+    "lockActorAndClipOwner",
+    "isActive(locked.actor)",
+    "isActive(locked.owner)",
     "lockClipCommentForModeration",
     "comment.clipOwnerId",
     "createClipCommentReport",
   ]);
   assert.match(
     report,
-    /lockUsersByIdOrder\([\s\S]*userId,[\s\S]*clipOwner\.userId/,
+    /lockActorAndClipOwner\(userId, clipOwner\.userId, tx\)/,
   );
   assert.match(report, /throw new NotFoundError\("Clip not found"\)/);
 });
@@ -50,13 +50,27 @@ test("user locks are deduplicated and acquired in bigint ID order", () => {
   const userLocks = sourceSection(
     usersRepository,
     "export async function lockUsersByIdOrder",
-    "export async function lockOwnedClipsByIdOrder",
+    "export async function shareLockUsersByIdOrder",
   );
   assertAppearsInOrder(userLocks, [
     "new Set",
     "FROM users",
     "ORDER BY id ASC",
     "FOR UPDATE",
+  ]);
+
+  // 共有ロックも同じ重複排除と ID 順を保つ。退会 UPDATE とは競合したまま、
+  // 「退会の有無を見るだけ」の処理同士が互いを待たないための版。
+  const shareLocks = sourceSection(
+    usersRepository,
+    "export async function shareLockUsersByIdOrder",
+    "export async function lockOwnedClipsByIdOrder",
+  );
+  assertAppearsInOrder(shareLocks, [
+    "new Set",
+    "FROM users",
+    "ORDER BY id ASC",
+    "FOR SHARE",
   ]);
   assert.match(userLocks, /ANY\(\$\{uniqueUserIds\}::bigint\[\]\)/);
   assert.doesNotMatch(userLocks, /deleted_at\s+IS\s+NULL/i);
@@ -84,7 +98,7 @@ test("clip soft deletion resolves reports while holding the clip lock", () => {
   assertAppearsInOrder(deletion, [
     "findActiveOwnerById",
     "prisma.$transaction",
-    "lockUsersByIdOrder",
+    "lockActorAndClipOwner",
     "repo.lockActiveById",
     "if (hard)",
     "resolveClipCommentReportsForClips",

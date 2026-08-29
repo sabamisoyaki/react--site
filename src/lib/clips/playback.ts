@@ -1,6 +1,8 @@
 // クリップの外部サービス再生まわりの共通ロジック。
 // clipData（カード）とShelfRail（最近観たクリップ）の両方から使う。
 
+import { createHandoffRequestId } from "@/lib/extension/handoffRequest";
+
 export const SERVICE_LABELS: Record<string, string> = {
   Netflix: "Netflix",
   NETFLIX: "NETFLIX",
@@ -166,6 +168,9 @@ export function openClipPlayback(clip: ClipPlayback): boolean {
     username,
     starttime,
     endtime,
+    // 拡張は結果通知にこの id をそのまま echo する。表示側が自分の押した
+    // ハンドオフの結果だけを拾えるようにするための対応づけ。
+    requestId: createHandoffRequestId(),
   };
   if (hasClipId) {
     detail.clipId = id;

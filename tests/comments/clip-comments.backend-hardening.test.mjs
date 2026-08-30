@@ -52,6 +52,12 @@ const APPLIED_MIGRATION_CHECKSUMS = [
     "20260806010000_add_clip_comment_reports",
     "e7930af2dbd63780ff238f7ead93449e7a686351bbfec7a34618d2343e3f2bc8",
   ],
+  // これも 2026-08-21 に適用済み。未適用だと思ってこの一覧から漏れており、
+  // 後から IF EXISTS / IF NOT EXISTS を足す編集を通してしまった。
+  [
+    "20260809000000_harden_clip_comments",
+    "82d8a2473580425df2308858cb85f521409ce90640e27c92d1c3001a1f18b7ec",
+  ],
 ];
 
 test("already-applied feature migrations retain their recorded checksums", () => {
@@ -106,7 +112,7 @@ test("comment migrations keep Prisma defaults and cascade indexes aligned", () =
   assert.match(commentModel, /@@index\(\[clipId\]\)/);
   assert.match(
     hardeningMigration.replace(/\s+/g, " "),
-    /CREATE INDEX IF NOT EXISTS "clip_comments_clip_id_idx" ON "clip_comments"\("clip_id"\);/,
+    /CREATE INDEX "clip_comments_clip_id_idx" ON "clip_comments"\("clip_id"\);/,
   );
 
   const reportModel = sourceSection(
@@ -117,17 +123,16 @@ test("comment migrations keep Prisma defaults and cascade indexes aligned", () =
   assert.match(reportModel, /@@unique\(\[commentId, reporterId\]\)/);
   assert.match(reportModel, /@@index\(\[reporterId\]\)/);
   assert.doesNotMatch(reportModel, /@@index\(\[commentId\]\)/);
-  // DROP と CREATE の両方にガードを要求する。CI に DB が無くマイグレーションは
-  // デプロイが初回実行になるため、対象が無い / 既にあるだけで落ちる書き方に
-  // 戻らないよう固定する。片側だけ守っても 486bca3 の書き換え版を適用した
-  // 環境では CREATE が "already exists" で落ちる。
+  // この migration は適用済みなのでガードを足さない。IF EXISTS /
+  // IF NOT EXISTS を後から入れると checksum が変わり、適用済み環境と
+  // 不一致になる。適用済みの形のままであることを固定する。
   assert.match(
     hardeningMigration,
-    /DROP INDEX IF EXISTS "clip_comment_reports_comment_id_idx";/,
+    /DROP INDEX "clip_comment_reports_comment_id_idx";/,
   );
   assert.match(
     hardeningMigration.replace(/\s+/g, " "),
-    /CREATE INDEX IF NOT EXISTS "clip_comment_reports_reporter_id_idx" ON "clip_comment_reports"\("reporter_id"\);/,
+    /CREATE INDEX "clip_comment_reports_reporter_id_idx" ON "clip_comment_reports"\("reporter_id"\);/,
   );
 });
 

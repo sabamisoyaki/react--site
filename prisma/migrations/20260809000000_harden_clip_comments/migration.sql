@@ -16,9 +16,7 @@ CREATE INDEX "clip_comments_user_id_created_at_idx"
   ON "clip_comments"("user_id", "created_at");
 
 -- Support clip foreign-key cascades across both active and soft-deleted comments.
--- 下の reporter_id と同じ理由で IF NOT EXISTS。この index を作る 20260726 も
--- 486bca3 で一度書き換えられ 33f97bb で戻されている。
-CREATE INDEX IF NOT EXISTS "clip_comments_clip_id_idx"
+CREATE INDEX "clip_comments_clip_id_idx"
   ON "clip_comments"("clip_id");
 
 -- Keep invariants valid even when data is written outside the HTTP service.
@@ -64,13 +62,7 @@ CREATE INDEX "clip_comment_reports_resolved_by_id_idx"
 
 -- The unique (comment_id, reporter_id) index already covers comment lookups.
 -- Replace the redundant standalone index with one that supports reporter cascades.
---
--- DROP と CREATE の両方を守る。この index を作る 20260806 は 486bca3 で一度
--- reporter_id 版に書き換えられ 33f97bb で戻された。書き換え版を適用した環境には
--- comment_id 版が無く reporter_id 版が既にあるので、DROP だけ守っても
--- 直後の CREATE が "already exists" で落ちる。CI に DB が無くマイグレーションの
--- 実行検証はデプロイが初回なので、両方を書き方で閉じる。
-DROP INDEX IF EXISTS "clip_comment_reports_comment_id_idx";
+DROP INDEX "clip_comment_reports_comment_id_idx";
 
-CREATE INDEX IF NOT EXISTS "clip_comment_reports_reporter_id_idx"
+CREATE INDEX "clip_comment_reports_reporter_id_idx"
   ON "clip_comment_reports"("reporter_id");

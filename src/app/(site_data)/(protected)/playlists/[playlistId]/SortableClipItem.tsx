@@ -3,8 +3,10 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { memo, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { memo, useMemo, useState } from "react";
 import Clip from "@/app/base/clip/clipData";
+import { removePlaylistClip } from "@/lib/playlists/client";
 
 interface ClipData {
   id: number;
@@ -34,6 +36,9 @@ function SortableClipItem({
   userId,
   isOwner,
 }: Props) {
+  const router = useRouter();
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState("");
   const {
     attributes,
     listeners,
@@ -86,6 +91,7 @@ function SortableClipItem({
           <button
             type="button"
             onClick={async () => {
+              if (removing) return;
               if (
                 !window.confirm(
                   `「${clip.clipName || "このクリップ"}」をプレイリストから削除しますか？`,
@@ -93,17 +99,29 @@ function SortableClipItem({
               ) {
                 return;
               }
-              await fetch(`/api/v1/playlists/${playlistId}/clips/${clipId}`, {
-                method: "DELETE",
-              });
-              location.reload();
+              setRemoving(true);
+              setError("");
+              try {
+                await removePlaylistClip(playlistId, clipId);
+                router.refresh();
+              } catch (error) {
+                setError((error as Error).message);
+              } finally {
+                setRemoving(false);
+              }
             }}
+            disabled={removing}
             className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg border-2 border-ink bg-white text-[16px] font-extrabold text-accent hover:bg-badge-nf"
             title="プレイリストから削除"
             aria-label="プレイリストから削除"
           >
             ×
           </button>
+          {error && (
+            <p role="alert" className="max-w-48 text-[13px] text-accent">
+              {error}
+            </p>
+          )}
         </div>
       )}
     </div>

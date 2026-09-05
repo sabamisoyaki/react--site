@@ -2447,7 +2447,9 @@ paths:
       tags:
         - Playlists
       summary: Add a clip to playlist (owner)
-      description: Idempotent; adding an already attached active clip also returns 201.
+      description: >-
+        Idempotent; adding an already attached active clip also returns 201.
+        A previously removed membership is restored with a new addition timestamp.
       security:
         - nextAuthSession: []
         - bearerAuth: []

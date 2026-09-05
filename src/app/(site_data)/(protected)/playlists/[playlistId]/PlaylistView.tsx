@@ -55,6 +55,7 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
   useEffect(() => setMounted(true), []);
 
   const [items, setItems] = useState(() => playlist.clips);
+  useEffect(() => setItems(playlist.clips), [playlist.clips]);
 
   const sensors = useSensors(useSensor(PointerSensor));
 

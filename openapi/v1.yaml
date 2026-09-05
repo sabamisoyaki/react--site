@@ -900,6 +900,8 @@ components:
       properties:
         name:
           type: string
+          description: Leading and trailing whitespace is trimmed before validation.
+          minLength: 1
           maxLength: 255
       additionalProperties: false
     PlaylistUpdate:
@@ -907,6 +909,8 @@ components:
       properties:
         name:
           type: string
+          description: Leading and trailing whitespace is trimmed before validation.
+          minLength: 1
           maxLength: 255
       additionalProperties: false
 paths:

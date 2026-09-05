@@ -28,13 +28,13 @@ export const playlistCursorListQuerySchema = cursorPaginationQuerySchema
   .strict();
 
 export const playlistCreateBodySchema = z
-  .object({ name: z.string().max(255) })
+  .object({ name: z.string().trim().min(1).max(255) })
   .strict();
 
 export const playlistUpdateBodySchema = nonEmptyBody(
   z
     .object({
-      name: z.string().max(255).optional(),
+      name: z.string().trim().min(1).max(255).optional(),
     })
     .strict(),
 );

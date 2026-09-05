@@ -15,6 +15,7 @@ export function findWithClips(id: number) {
       name: true,
       userId: true,
       clipsPlaylists: {
+        where: { deletedAt: null, clip: { deletedAt: null } },
         orderBy: { createdAt: "desc" },
         include: {
           clip: {
@@ -177,6 +178,7 @@ export async function listClips(
   const take = opts.take ?? 20;
   const where: Prisma.ClipPlaylistWhereInput = {
     playlistId,
+    deletedAt: null,
     clip: { deletedAt: null },
   };
   const [total, rels] = await Promise.all([

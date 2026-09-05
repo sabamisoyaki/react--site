@@ -42,6 +42,16 @@ export const playlistUpdateBodySchema = nonEmptyBody(
 export const playlistIdParamSchema = z.object({ playlistId: idSchema });
 
 export const playlistClipBodySchema = z.object({ clipId: idSchema });
+const orderedClipIdsSchema = z
+  .array(idSchema)
+  .max(10000)
+  .refine((ids) => new Set(ids).size === ids.length, "Clip IDs must be unique");
+export const playlistReorderBodySchema = z
+  .object({
+    clipIds: orderedClipIdsSchema,
+    previousClipIds: orderedClipIdsSchema,
+  })
+  .strict();
 export const playlistVodBodySchema = z.object({ vodId: idSchema });
 
 export const playlistClipParamSchema = playlistIdParamSchema.extend({

@@ -54,3 +54,36 @@ export async function removePlaylistClip(playlistId: number, clipId: number) {
       "削除できませんでした。時間をおいて再度お試しください。",
   );
 }
+
+export async function savePlaylistOrder(
+  playlistId: number,
+  clipIds: number[],
+  previousClipIds: number[],
+) {
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1/playlists/${playlistId}/clips`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clipIds, previousClipIds }),
+    });
+  } catch {
+    throw new Error(
+      "並べ替えを保存できませんでした。接続を確認して再度お試しください。",
+    );
+  }
+  if (response.ok) return;
+  if (response.status === 409) {
+    throw new Error(
+      "プレイリストが他の操作で更新されました。更新後の一覧で再度並べ替えてください。",
+    );
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(
+      "並べ替える権限がありません。ログイン状態を確認してください。",
+    );
+  }
+  throw new Error(
+    "並べ替えを保存できませんでした。時間をおいて再度お試しください。",
+  );
+}

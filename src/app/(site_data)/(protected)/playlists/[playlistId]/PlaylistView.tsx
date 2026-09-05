@@ -14,9 +14,11 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { clearPlaybackClipId } from "@/lib/clips/playback";
 import { createHandoffRequestId } from "@/lib/extension/handoffRequest";
+import { savePlaylistOrder } from "@/lib/playlists/client";
 import SortableClipItem from "./SortableClipItem";
 
 interface Clip {
@@ -50,25 +52,49 @@ interface PlaylistViewProps {
   userId: string | null;
 }
 export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [orderError, setOrderError] = useState("");
   const isOwner = userId === playlist.userId;
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const [items, setItems] = useState(() => playlist.clips);
-  useEffect(() => setItems(playlist.clips), [playlist.clips]);
+  useEffect(() => {
+    if (!savingRef.current) setItems(playlist.clips);
+  }, [playlist.clips]);
 
   const sensors = useSensors(useSensor(PointerSensor));
 
   async function handleDragEnd(event: DragEndEvent) {
-    if (!isOwner) return;
+    if (!isOwner || savingRef.current) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
     const oldIndex = items.findIndex((i) => i.id === active.id);
     const newIndex = items.findIndex((i) => i.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
 
     const newOrder = arrayMove(items, oldIndex, newIndex);
     setItems(newOrder);
+    savingRef.current = true;
+    setSaving(true);
+    setOrderError("");
+    try {
+      await savePlaylistOrder(
+        playlist.id,
+        newOrder.map((item) => item.id),
+        items.map((item) => item.id),
+      );
+    } catch (error) {
+      setItems(items);
+      setOrderError((error as Error).message);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+      router.refresh();
+    }
   }
 
   const itemIds = useMemo(() => items.map((i) => i.id), [items]);
@@ -95,6 +121,7 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
       <div className="mb-5 flex items-center gap-3.5">
         <button
           type="button"
+          disabled={saving}
           onClick={() => {
             // id / order / 配列順が拡張との契約。order は 0 始まりの配列
             // インデックスで、拡張はこれで再生中クリップを解決する。
@@ -132,6 +159,17 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
         </span>
       </div>
 
+      {saving && (
+        <output className="mb-4 block text-[13px] text-ink-muted">
+          並べ替えを保存中…
+        </output>
+      )}
+      {orderError && (
+        <p role="alert" className="mb-4 text-[13px] text-accent">
+          {orderError}
+        </p>
+      )}
+
       <div className="flex flex-col gap-5">
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
           {items.map((pc) => (
@@ -142,6 +180,7 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
               clip={pc.clip}
               userId={userId}
               isOwner={isOwner}
+              disabled={saving}
             />
           ))}
         </SortableContext>

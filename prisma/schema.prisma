@@ -191,12 +191,14 @@ model ClipPlaylist {
   playlistId  BigInt    @map("playlist_id") @db.BigInt
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+  position    Int       @default(0)
 
   clip     Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
   playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
   @@id([clipId, playlistId])
   @@index([playlistId, createdAt])
+  @@index([playlistId, position, clipId])
   @@map("clips_playlists")
 }
 

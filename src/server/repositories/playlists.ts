@@ -2,6 +2,49 @@ import type { Clip, Prisma, Vod } from "@prisma/client";
 import { parseKeywords } from "@/lib/search/utils";
 import { prisma } from "@/server/db";
 import { type CursorPayload, encodeCursor } from "@/server/http/pagination";
+import {
+  encodePlaylistClipCursor,
+  type PlaylistClipCursor,
+} from "@/server/http/playlist-pagination";
+
+export async function lockActivePlaylist(
+  id: number,
+  db: Prisma.TransactionClient,
+) {
+  const rows = await db.$queryRaw<Array<{ id: bigint; userId: bigint }>>`
+    SELECT id, user_id AS "userId" FROM playlists
+    WHERE id = ${BigInt(id)} AND deleted_at IS NULL FOR UPDATE
+  `;
+  return rows[0] ?? null;
+}
+
+export function listOrderedActiveClipIds(
+  playlistId: number,
+  db: Prisma.TransactionClient,
+) {
+  return db.clipPlaylist.findMany({
+    where: { playlistId, deletedAt: null, clip: { deletedAt: null } },
+    select: { clipId: true },
+    orderBy: [{ position: "asc" }, { clipId: "desc" }],
+  });
+}
+
+export async function reorderClips(
+  playlistId: number,
+  clipIds: number[],
+  db: Prisma.TransactionClient,
+) {
+  if (clipIds.length === 0) return;
+  // One statement avoids one DB round trip per clip. Values remain parameters.
+  await db.$executeRaw`
+    UPDATE clips_playlists AS membership
+    SET position = ordered.ordinality::integer - 1
+    FROM unnest(${clipIds.map(BigInt)}::bigint[]) WITH ORDINALITY AS ordered(clip_id, ordinality)
+    WHERE membership.playlist_id = ${BigInt(playlistId)}
+      AND membership.clip_id = ordered.clip_id
+      AND membership.deleted_at IS NULL
+  `;
+}
 
 export function findById(id: number) {
   return prisma.playlist.findFirst({ where: { id, deletedAt: null } });
@@ -16,7 +59,7 @@ export function findWithClips(id: number) {
       userId: true,
       clipsPlaylists: {
         where: { deletedAt: null, clip: { deletedAt: null } },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ position: "asc" }, { clipId: "desc" }],
         include: {
           clip: {
             include: {
@@ -142,19 +185,24 @@ type ActiveInsertResult = {
   inserted: boolean;
 };
 
-export async function addClipIfActive(playlistId: number, clipId: number) {
-  const rows = await prisma.$queryRaw<ActiveInsertResult[]>`
+export async function addClipIfActive(
+  playlistId: number,
+  clipId: number,
+  db: Prisma.TransactionClient = prisma,
+) {
+  const rows = await db.$queryRaw<ActiveInsertResult[]>`
     WITH active AS (
       SELECT c.id
       FROM clips c
       WHERE c.id = ${clipId} AND c.deleted_at IS NULL
     ),
     inserted AS (
-      INSERT INTO clips_playlists (playlist_id, clip_id)
-      SELECT ${playlistId}, ${clipId}
+      INSERT INTO clips_playlists (playlist_id, clip_id, position)
+      SELECT ${playlistId}, ${clipId},
+        COALESCE((SELECT MIN(position) - 1 FROM clips_playlists WHERE playlist_id = ${playlistId}), 0)
       FROM active
       ON CONFLICT (clip_id, playlist_id) DO UPDATE
-        SET deleted_at = NULL, created_at = now()
+        SET deleted_at = NULL, created_at = now(), position = EXCLUDED.position
         WHERE clips_playlists.deleted_at IS NOT NULL
       RETURNING 1
     )
@@ -166,8 +214,12 @@ export async function addClipIfActive(playlistId: number, clipId: number) {
   return rows[0] ?? { active_exists: false, inserted: false };
 }
 
-export function removeClip(playlistId: number, clipId: number) {
-  return prisma.clipPlaylist.update({
+export function removeClip(
+  playlistId: number,
+  clipId: number,
+  db: Prisma.TransactionClient = prisma,
+) {
+  return db.clipPlaylist.update({
     where: { clipId_playlistId: { clipId, playlistId }, deletedAt: null },
     data: { deletedAt: new Date() },
   });
@@ -190,7 +242,7 @@ export async function listClips(
       where,
       skip,
       take,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ position: "asc" }, { clipId: "desc" }],
       include: { clip: true },
     }),
   ]);
@@ -200,10 +252,9 @@ export async function listClips(
 
 export async function listClipsCursor(
   playlistId: number,
-  opts: { cursor?: CursorPayload | null; limit?: number } = {},
+  opts: { cursor?: PlaylistClipCursor | null; limit?: number } = {},
 ) {
   const limit = opts.limit ?? 20;
-  const cursorDate = opts.cursor ? new Date(opts.cursor.c) : null;
   const cursorId = opts.cursor ? Number.parseInt(opts.cursor.i, 10) : undefined;
   const where: Prisma.ClipPlaylistWhereInput = {
     playlistId,
@@ -211,11 +262,11 @@ export async function listClipsCursor(
     clip: { deletedAt: null },
   };
 
-  if (cursorDate && cursorId != null && Number.isFinite(cursorId)) {
+  if (opts.cursor && cursorId != null && Number.isFinite(cursorId)) {
     where.OR = [
-      { createdAt: { lt: cursorDate } },
+      { position: { gt: opts.cursor.p } },
       {
-        AND: [{ createdAt: cursorDate }, { clipId: { lt: cursorId } }],
+        AND: [{ position: opts.cursor.p }, { clipId: { lt: cursorId } }],
       },
     ];
   }
@@ -223,7 +274,7 @@ export async function listClipsCursor(
   const rels = await prisma.clipPlaylist.findMany({
     where,
     take: limit + 1,
-    orderBy: [{ createdAt: "desc" }, { clipId: "desc" }],
+    orderBy: [{ position: "asc" }, { clipId: "desc" }],
     include: { clip: true },
   });
 
@@ -234,7 +285,9 @@ export async function listClipsCursor(
   return {
     data: page.map((r) => r.clip) as Clip[],
     hasNext,
-    nextCursor: last ? encodeCursor(last.createdAt, last.clipId) : null,
+    nextCursor: last
+      ? encodePlaylistClipCursor(last.createdAt, last.clipId, last.position)
+      : null,
   };
 }
 

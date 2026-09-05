@@ -2416,6 +2416,10 @@ paths:
       tags:
         - Playlists
       summary: List clips in a playlist
+      description: >-
+        Returns active clips in saved position order, with descending clip ID
+        as a tie breaker. Restart pagination after reordering or membership changes.
+        Cursors issued before position-based ordering are rejected with 400.
       security: []
       parameters:
         - $ref: "#/components/parameters/CursorParam"
@@ -2450,6 +2454,7 @@ paths:
       description: >-
         Idempotent; adding an already attached active clip also returns 201.
         A previously removed membership is restored with a new addition timestamp.
+        New and restored clips are placed first; existing clips keep their order.
       security:
         - nextAuthSession: []
         - bearerAuth: []
@@ -2469,6 +2474,53 @@ paths:
           description: Added
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: playlists.clips.reorder
+      x-permission: owner
+      tags:
+        - Playlists
+      summary: Save playlist clip order (owner)
+      description: >-
+        Atomically reorders all active clips. clipIds must be a permutation of
+        the current list, and previousClipIds must match the current saved order.
+        Returns 409 if another operation changed the order or membership.
+        Reordering, clip addition, and removal lock the same playlist row.
+      security:
+        - nextAuthSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clipIds, previousClipIds]
+              additionalProperties: false
+              properties:
+                clipIds:
+                  type: array
+                  uniqueItems: true
+                  maxItems: 10000
+                  items:
+                    $ref: "#/components/schemas/ID"
+                previousClipIds:
+                  type: array
+                  uniqueItems: true
+                  maxItems: 10000
+                  items:
+                    $ref: "#/components/schemas/ID"
+      responses:
+        "204":
+          description: Order saved
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   "/playlists/{playlistId}/clips/{clipId}":
     parameters:
       - name: playlistId

@@ -14,7 +14,12 @@ const repo = await import("../../src/server/repositories/playlists.ts");
 test("playlist detail, offset and cursor reads exclude deleted clips and memberships", async (t) => {
   const activeWhere = { deletedAt: null, clip: { deletedAt: null } };
   const clip = { id: 3n };
-  const membership = { clipId: clip.id, createdAt: new Date(), clip };
+  const membership = {
+    clipId: clip.id,
+    createdAt: new Date(),
+    position: 0,
+    clip,
+  };
   t.mock.method(prisma.playlist, "findFirst", async (query) => {
     assert.deepEqual(query.where, { id: 1, deletedAt: null });
     assert.deepEqual(query.select.clipsPlaylists.where, activeWhere);

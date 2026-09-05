@@ -4,6 +4,13 @@ import test from "node:test";
 const prisma = {
   playlist: { findFirst: async () => ({ id: 1n, userId: 2n }) },
   $queryRaw: async () => [{ active_exists: true, inserted: false }],
+  $transaction: async (callback) =>
+    callback({
+      $queryRaw: async (sql, ...values) =>
+        sql.join("").includes("FOR UPDATE")
+          ? [await prisma.playlist.findFirst()].filter(Boolean)
+          : prisma.$queryRaw(sql, ...values),
+    }),
 };
 globalThis.prisma = prisma;
 const { addClipToPlaylist, addVodToPlaylist } = await import(

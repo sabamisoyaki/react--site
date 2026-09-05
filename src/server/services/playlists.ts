@@ -1,9 +1,5 @@
 import { parseKeywords, rankByKeywords } from "@/lib/search/utils";
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-} from "@/server/http/errors";
+import { ForbiddenError, NotFoundError } from "@/server/http/errors";
 import * as repo from "@/server/repositories/playlists";
 
 export async function listPlaylists(opts: Parameters<typeof repo.list>[0]) {
@@ -122,7 +118,6 @@ export async function addVodToPlaylist(
   }
   const result = await repo.addVodIfActive(playlistId, vodId);
   if (!result.active_exists) throw new NotFoundError("VOD not found");
-  if (!result.inserted) throw new ConflictError("VOD already attached");
 }
 
 export async function removeVodFromPlaylist(

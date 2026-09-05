@@ -2,6 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
+import {
+  createPlaylistWithClip,
+  PlaylistAttachmentError,
+} from "@/lib/playlists/client";
 import { notifyPlaylistsUpdated } from "@/lib/playlists/events";
 
 type PlaylistOption = {
@@ -34,6 +38,7 @@ export default function PlaylistModal({
     if (!isOpen) return;
     setLoadState("loading");
     setErrorMessage("");
+    setSubmitting(false);
     (async () => {
       try {
         const res = await fetch("/api/v1/me/playlists");
@@ -55,11 +60,11 @@ export default function PlaylistModal({
   useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !submitting) onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, submitting]);
 
   // 新規作成 ＋ clip 追加
   const createPlaylist = async () => {
@@ -67,29 +72,22 @@ export default function PlaylistModal({
     setSubmitting(true);
     setErrorMessage("");
     try {
-      const res = await fetch("/api/v1/me/playlists", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim() }),
+      const playlist = await createPlaylistWithClip(name, clipId, (created) => {
+        notifyPlaylistsUpdated();
+        setPlaylists((current) => [created, ...current]);
+        setLoadState("ready");
+        setName("");
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const playlist = await res.json();
-
-      const addRes = await fetch(`/api/v1/playlists/${playlist.id}/clips`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clipId }),
-      });
-      if (!addRes.ok) throw new Error(`HTTP ${addRes.status}`);
-
-      notifyPlaylistsUpdated();
       onClose();
       router.push(`/playlists/${playlist.id}`);
-    } catch {
+    } catch (error) {
       setErrorMessage(
-        // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
-        "プレイリストを作成できませんでした。時間をおいて再度お試しください。",
+        error instanceof PlaylistAttachmentError
+          ? error.message
+          : // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
+            "プレイリストを作成できませんでした。時間をおいて再度お試しください。",
       );
+    } finally {
       setSubmitting(false);
     }
   };
@@ -113,6 +111,7 @@ export default function PlaylistModal({
         // biome-ignore lint/security/noSecrets: Japanese UI label is a false positive.
         "プレイリストに追加できませんでした。時間をおいて再度お試しください。",
       );
+    } finally {
       setSubmitting(false);
     }
   };
@@ -126,7 +125,7 @@ export default function PlaylistModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !submitting) onClose();
       }}
     >
       <div
@@ -215,13 +214,16 @@ export default function PlaylistModal({
         )}
 
         {errorMessage && (
-          <p className="text-[13px] font-bold text-accent">{errorMessage}</p>
+          <p role="alert" className="text-[13px] font-bold text-accent">
+            {errorMessage}
+          </p>
         )}
 
         <div className="flex justify-end">
           <button
             type="button"
             onClick={onClose}
+            disabled={submitting}
             className="cursor-pointer rounded-full border-2 border-ink bg-white px-5 py-2 text-[13px] font-extrabold hover:bg-chip"
           >
             閉じる

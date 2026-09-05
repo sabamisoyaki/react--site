@@ -1,5 +1,39 @@
 // biome-ignore-all lint/security/noSecrets: Japanese UI messages are false positives.
 
+export class PlaylistAttachmentError extends Error {
+  constructor() {
+    super(
+      "プレイリストは作成しましたが、クリップを追加できませんでした。下の一覧から再度追加してください。",
+    );
+  }
+}
+
+export async function createPlaylistWithClip(
+  name: string,
+  clipId: string,
+  onCreated: (playlist: { id: number; name: string }) => void,
+) {
+  const response = await fetch("/api/v1/me/playlists", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: name.trim() }),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const playlist: { id: number; name: string } = await response.json();
+  onCreated(playlist);
+  try {
+    const added = await fetch(`/api/v1/playlists/${playlist.id}/clips`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clipId }),
+    });
+    if (!added.ok) throw new Error(`HTTP ${added.status}`);
+  } catch {
+    throw new PlaylistAttachmentError();
+  }
+  return playlist;
+}
+
 export async function removePlaylistClip(playlistId: number, clipId: number) {
   let response: Response;
   try {

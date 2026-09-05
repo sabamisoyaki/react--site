@@ -362,6 +362,23 @@ components:
         alias:
           type: string
       additionalProperties: false
+    PublicUser:
+      type: object
+      description: >-
+        Public author information. Only id and name may be exposed; email,
+        hashedPassword, emailVerified, image, region, timestamps, and any future
+        User fields are excluded by an explicit repository select.
+      properties:
+        id:
+          $ref: "#/components/schemas/ID"
+        name:
+          type:
+            - string
+            - "null"
+      required:
+        - id
+        - name
+      additionalProperties: false
     Clip:
       type: object
       properties:
@@ -371,6 +388,8 @@ components:
           $ref: "#/components/schemas/ID"
         vodId:
           $ref: "#/components/schemas/ID"
+        user:
+          $ref: "#/components/schemas/PublicUser"
         name:
           type: string
           maxLength: 255
@@ -856,6 +875,8 @@ components:
           $ref: "#/components/schemas/ID"
         userId:
           $ref: "#/components/schemas/ID"
+        user:
+          $ref: "#/components/schemas/PublicUser"
         name:
           type: string
           maxLength: 255
@@ -1808,6 +1829,9 @@ paths:
       tags:
         - Clips
       summary: List clips
+      description: >-
+        Anonymous reads are allowed, including filtering by userId, searching,
+        and cursor pagination. Each item's user contains only id and name.
       security: []
       parameters:
         - $ref: "#/components/parameters/CursorParam"
@@ -2253,6 +2277,9 @@ paths:
       tags:
         - Playlists
       summary: List playlists
+      description: >-
+        Anonymous reads are allowed, including filtering by userId, searching,
+        and cursor pagination. Each item's user contains only id and name.
       security: []
       parameters:
         - $ref: "#/components/parameters/CursorParam"

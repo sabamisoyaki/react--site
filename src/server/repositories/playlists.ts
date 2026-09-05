@@ -19,7 +19,7 @@ export function findWithClips(id: number) {
         include: {
           clip: {
             include: {
-              user: true,
+              user: { select: { id: true, name: true } },
               vod: true,
             },
           },
@@ -103,7 +103,7 @@ export async function listCursor(
     where,
     take: limit + 1,
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    include: { user: true },
+    include: { user: { select: { id: true, name: true } } },
   });
 
   const hasNext = data.length > limit;

@@ -15,7 +15,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clearPlaybackClipId } from "@/lib/clips/playback";
 import { createHandoffRequestId } from "@/lib/extension/handoffRequest";
 import { savePlaylistOrder } from "@/lib/playlists/client";
@@ -61,6 +61,10 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
   useEffect(() => setMounted(true), []);
 
   const [items, setItems] = useState(() => playlist.clips);
+  const handleClipRemoved = useCallback((clipId: number) => {
+    // refresh() is asynchronous; subsequent drags must already omit this ID.
+    setItems((current) => current.filter((item) => item.id !== clipId));
+  }, []);
   useEffect(() => {
     if (!savingRef.current) setItems(playlist.clips);
   }, [playlist.clips]);
@@ -181,6 +185,7 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
               userId={userId}
               isOwner={isOwner}
               disabled={saving}
+              onRemoved={handleClipRemoved}
             />
           ))}
         </SortableContext>

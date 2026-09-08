@@ -28,6 +28,7 @@ interface Props {
   isOwner: boolean;
   playlistId: number;
   disabled?: boolean;
+  onRemoved: (clipId: number) => void;
 }
 
 function SortableClipItem({
@@ -37,6 +38,7 @@ function SortableClipItem({
   userId,
   isOwner,
   disabled = false,
+  onRemoved,
 }: Props) {
   const router = useRouter();
   const [removing, setRemoving] = useState(false);
@@ -105,6 +107,7 @@ function SortableClipItem({
               setError("");
               try {
                 await removePlaylistClip(playlistId, clipId);
+                onRemoved(clipId);
                 router.refresh();
               } catch (error) {
                 setError((error as Error).message);

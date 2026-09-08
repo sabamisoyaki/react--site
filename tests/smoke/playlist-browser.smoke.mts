@@ -149,6 +149,9 @@ export async function runPlaylistBrowserChecks(
       "PASS: failed order save restores the displayed and playback order",
     );
     await page.unroute("**/api/v1/playlists/100/clips");
+    // Finish the preceding failure/recovery scenario before delaying a refresh.
+    await page.reload();
+    await handles.first().waitFor();
     page.on("dialog", (dialog: any) => dialog.accept());
     await page.route("**/api/v1/playlists/100/clips/*", (route: any) =>
       route.fulfill({ status: 403 }),
@@ -163,23 +166,73 @@ export async function runPlaylistBrowserChecks(
       .waitFor();
     assert.equal(await handles.count(), 3);
     await page.unroute("**/api/v1/playlists/100/clips/*");
-    const removed = page.waitForResponse(
-      (response: any) => response.request().method() === "DELETE",
-    );
-    await page
-      .getByRole("button", { name: "プレイリストから削除", exact: true })
-      .first()
-      .click();
-    assert.equal((await removed).status(), 204);
-    for (
-      let attempt = 0;
-      attempt < 50 && (await handles.count()) !== 2;
-      attempt++
-    )
-      await page.waitForTimeout(100);
-    assert.equal(await handles.count(), 2);
+    // Hold server-component refreshes so deletion and a following drag happen
+    // before new playlist props arrive. The old UI retains the removed ID here.
+    let releaseRefresh = () => {};
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let blockedRefreshes = 0;
+    const refreshHandlers: Promise<void>[] = [];
+    const playlistPage = (url: URL) => url.pathname === "/playlists/100";
+    await page.route(playlistPage, (route: any) => {
+      const handler = (async () => {
+        if (route.request().headers().rsc === "1") {
+          blockedRefreshes++;
+          await refreshGate;
+        }
+        await route.continue();
+      })();
+      refreshHandlers.push(handler);
+      return handler;
+    });
+    try {
+      const removed = page.waitForResponse(
+        (response: any) => response.request().method() === "DELETE",
+      );
+      await page
+        .getByRole("button", { name: "プレイリストから削除", exact: true })
+        .first()
+        .click();
+      assert.equal((await removed).status(), 204);
+      for (
+        let attempt = 0;
+        attempt < 50 && (await handles.count()) !== 2;
+        attempt++
+      )
+        await page.waitForTimeout(100);
+      assert.equal(await handles.count(), 2);
+      assert.ok(blockedRefreshes > 0, "server refresh is still pending");
+      const remainingIds = savedOrder.slice(1);
+      await play.click();
+      assert.deepEqual(await queueIds(), remainingIds);
+      const reordered = page.waitForResponse(
+        (response: any) => response.request().method() === "PATCH",
+      );
+      await dragFirstToLast();
+      const reorderedResponse = await reordered;
+      assert.deepEqual(
+        reorderedResponse.request().postDataJSON().previousClipIds,
+        remainingIds,
+      );
+      assert.equal(reorderedResponse.status(), 204);
+      assert.deepEqual(
+        reorderedResponse.request().postDataJSON().clipIds,
+        [...remainingIds].reverse(),
+      );
+      await play.click();
+      assert.deepEqual(await queueIds(), [...remainingIds].reverse());
+    } finally {
+      releaseRefresh();
+      await Promise.all(refreshHandlers);
+      await page.unroute(playlistPage);
+    }
+    await page.reload();
+    await handles.first().waitFor();
+    await play.click();
+    assert.deepEqual(await queueIds(), savedOrder.slice(1).reverse());
     console.log(
-      "PASS: removal errors are visible and successful removal refreshes the list",
+      "PASS: deletion updates the list and playback immediately; reorder succeeds before refresh finishes",
     );
 
     await page.evaluate(() => {

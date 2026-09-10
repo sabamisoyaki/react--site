@@ -14,7 +14,14 @@ for (const [operation, schema] of [
   test(`playlist ${operation} rejects empty names with HTTP 400`, async () => {
     for (const name of ["", "   ", "\t\n\u3000", "a".repeat(256)]) {
       await assert.rejects(
-        parseJsonBody({ json: async () => ({ name }) }, schema),
+        parseJsonBody(
+          new Request("https://app.example/api/v1/me/playlists", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          }),
+          schema,
+        ),
         (error) => toErrorPayload(error).status === 400,
       );
     }

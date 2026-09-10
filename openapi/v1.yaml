@@ -20,6 +20,13 @@ info:
     describes how application APIs are secured, not the OAuth/session plumbing
 
     routes themselves.
+
+    v1 writes require the site's own Origin (AUTH_URL / NEXTAUTH_URL when set).
+    Cross-site browser writes and opaque origins are rejected with 403.
+    Non-browser callers may omit Origin and Sec-Fetch-Site. JSON request bodies
+    require Content-Type application/json (parameters such as charset are allowed);
+    unsupported content types return 415. Extension origin rules remain separate
+    under /api/extension/*.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary

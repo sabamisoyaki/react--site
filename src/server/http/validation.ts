@@ -1,7 +1,6 @@
-import type { NextRequest } from "next/server";
 import type { z } from "zod";
 
-import { BadRequestError } from "@/server/http/errors";
+import { BadRequestError, HttpError } from "@/server/http/errors";
 
 export function parseSearchParams<T>(
   params: URLSearchParams,
@@ -32,9 +31,21 @@ export function parseRouteParams<T>(
 }
 
 export async function parseJsonBody<T>(
-  req: NextRequest,
+  req: Request,
   schema: z.ZodSchema<T>,
 ): Promise<T> {
+  const mediaType = req.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+  if (mediaType !== "application/json") {
+    throw new HttpError(
+      415,
+      "Content-Type must be application/json",
+      "UNSUPPORTED_MEDIA_TYPE",
+    );
+  }
   let payload: unknown;
   try {
     payload = await req.json();

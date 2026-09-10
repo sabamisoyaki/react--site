@@ -38,6 +38,13 @@
   4. Review `prisma/migrations/<timestamp>_<name>/migration.sql`
   5. Apply with `npx prisma migrate dev`
 - If Prisma tries to generate follow-up diff noise around partial indexes, stop and inspect before proceeding.
+- シャドウDB は履歴を空の Postgres へ先頭から再生する。`20260430010000_init`
+  より前に何かを挿すと再生が止まり、`migrate dev` が使えなくなる。
+  `tests/db/migrations.test.mjs` が先頭と SQLite 方言の混入を見張っている。
+- 適用済みの migration ファイルは編集しない。Prisma 7.4.0 ではチェックサム不一致を
+  検出して reset を要求するのは `migrate dev` であり、`migrate status` /
+  `migrate deploy` はチェックサムだけの不一致を報告しない。相当の DDL は未適用の
+  migration へ集約する。
 
 ## Delivery Format
 

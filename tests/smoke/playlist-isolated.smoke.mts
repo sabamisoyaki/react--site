@@ -45,12 +45,8 @@ try {
     .filter((name) => /^\d/.test(name))
     .sort();
   for (const migration of migrations) {
-    // This pre-PostgreSQL migration is already superseded by the init baseline.
-    if (
-      migration === "20251031065950_add_playlist_table" ||
-      migration.endsWith("playlist_clip_order")
-    )
-      continue;
+    // Apply the order migration after seeding to verify its backfill as well.
+    if (migration.endsWith("playlist_clip_order")) continue;
     await pg.exec(
       await readFile(`prisma/migrations/${migration}/migration.sql`, "utf8"),
     );
@@ -85,6 +81,35 @@ try {
     adapter: new PrismaPg({ connectionString, max: 1 }),
   });
   (globalThis as any).prisma = prisma;
+  // Exercise metadata repair only in this disposable database. The default
+  // invocation must retain both rows; applying it must preserve the baseline.
+  await pg.exec(`
+    CREATE TABLE _prisma_migrations (id text PRIMARY KEY, migration_name text NOT NULL, checksum text NOT NULL, finished_at timestamptz, rolled_back_at timestamptz);
+    INSERT INTO _prisma_migrations VALUES
+      ('baseline', '20260430010000_init', 'baseline', now(), NULL),
+      ('obsolete', '20251031065950_add_playlist_table', 'eb6250fbfa6b40df2086950bc1a1f637a1f7b21f31b859f5c0cb35a7efa8e063', now(), NULL);
+  `);
+  const { repairSqliteMigration } =
+    require("../../scripts/lib/repair-sqlite-migration.ts") as typeof import("../../scripts/lib/repair-sqlite-migration");
+  assert.deepEqual(await repairSqliteMigration(prisma), {
+    legacyRecords: 1,
+    applied: false,
+  });
+  assert.equal(
+    (await pg.query("SELECT id FROM _prisma_migrations")).rows.length,
+    2,
+  );
+  await repairSqliteMigration(prisma, true);
+  assert.deepEqual((await pg.query("SELECT id FROM _prisma_migrations")).rows, [
+    { id: "baseline" },
+  ]);
+  assert.deepEqual(await repairSqliteMigration(prisma, true), {
+    legacyRecords: 0,
+    applied: true,
+  });
+  console.log(
+    "PASS: migration metadata repair is read-only by default and preserves the PostgreSQL baseline",
+  );
   const repo =
     require("@/server/repositories/playlists") as typeof import("@/server/repositories/playlists");
   const service =
@@ -146,6 +171,10 @@ try {
   console.log(
     "PASS: duplicate add, soft removal, restoration, VOD retry and deleted-clip visibility",
   );
+  const { runExtensionSyncChecks } = await import(
+    "./extension-sync-checks.mjs"
+  );
+  await runExtensionSyncChecks(prisma);
   if (process.env.PLAYLIST_TEST_UI === "1") {
     await prisma.clip.update({ where: { id: 103 }, data: { deletedAt: null } });
     await service.reorderPlaylistClips(

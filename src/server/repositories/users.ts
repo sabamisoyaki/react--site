@@ -113,6 +113,21 @@ export function hardDelete(id: number, db: Prisma.TransactionClient = prisma) {
   return db.user.delete({ where: { id } });
 }
 
+export async function revokeUserExtensions(
+  id: number,
+  db: Prisma.TransactionClient,
+) {
+  const revokedAt = new Date();
+  await db.$executeRaw`
+    UPDATE linked_extensions SET revoked_at = ${revokedAt}
+    WHERE user_id = ${id} AND revoked_at IS NULL
+  `;
+  await db.$executeRaw`
+    UPDATE extension_link_tokens SET used_at = ${revokedAt}
+    WHERE user_id = ${id} AND used_at IS NULL
+  `;
+}
+
 export async function listUserVods(
   userId: number,
   opts: { skip?: number; take?: number } = {},

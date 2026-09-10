@@ -56,6 +56,7 @@ export async function deleteUser(
       "owner_deleted",
       tx,
     );
+    await repo.revokeUserExtensions(id, tx);
     return repo.softDelete(id, tx);
   });
 }

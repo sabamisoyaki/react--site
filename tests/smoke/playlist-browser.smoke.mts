@@ -79,6 +79,83 @@ export async function runPlaylistBrowserChecks(
         sameSite: "None",
       },
     ]);
+    const favoritesUrl = `${base}/api/v1/me/favorites/clips`;
+    // APIRequestContext does not grant Chromium's secure-cookie exception for
+    // loopback HTTP. Supply this isolated fixture's cookie explicitly for HTTP
+    // assertions; page interactions below still use the browser cookie jar.
+    const fixtureCookie = `${cookieName}=${token}`;
+    const rejectedOrigin = await context.request.post(favoritesUrl, {
+      headers: {
+        Cookie: fixtureCookie,
+        Origin: "https://foreign.example",
+        "Sec-Fetch-Site": "cross-site",
+        "Content-Type": "text/plain",
+      },
+      data: JSON.stringify({ clipId: 101 }),
+    });
+    assert.equal(rejectedOrigin.status(), 403);
+    const rejectedType = await context.request.post(favoritesUrl, {
+      headers: {
+        Cookie: fixtureCookie,
+        Origin: base,
+        "Content-Type": "text/plain",
+      },
+      data: JSON.stringify({ clipId: 101 }),
+    });
+    assert.equal(rejectedType.status(), 415);
+    const favorite = await context.request.post(favoritesUrl, {
+      headers: { Cookie: fixtureCookie, Origin: base },
+      data: { clipId: 101 },
+    });
+    assert.equal(favorite.status(), 201);
+    const favorites = await context.request.get(favoritesUrl, {
+      headers: { Cookie: fixtureCookie },
+    });
+    assert.equal(favorites.status(), 200);
+    assert.equal((await favorites.json()).data[0].id, 101);
+    assert.equal(
+      (
+        await context.request.delete(`${favoritesUrl}/101`, {
+          headers: { Cookie: fixtureCookie, Origin: base },
+        })
+      ).status(),
+      204,
+    );
+    console.log(
+      "PASS: authenticated HTTP writes reject foreign origins/simple bodies and nonempty favorites serialize",
+    );
+
+    const deletedContext = await browser.newContext();
+    try {
+      const deletedSession = await encode({
+        secret,
+        salt: cookieName,
+        token: { uid: "201", sub: "201" },
+      });
+      await deletedContext.addCookies([
+        {
+          name: cookieName,
+          value: deletedSession,
+          domain: "127.0.0.1",
+          path: "/",
+          httpOnly: true,
+          secure: true,
+          sameSite: "None",
+        },
+      ]);
+      const response = await deletedContext.request.post(
+        `${base}/api/extension/link-token`,
+        {
+          headers: { Cookie: `${cookieName}=${deletedSession}`, Origin: base },
+        },
+      );
+      assert.equal(response.status(), 401);
+      console.log(
+        "PASS: a still-valid JWT for a deleted user cannot issue extension link tokens",
+      );
+    } finally {
+      await deletedContext.close();
+    }
     const page = await context.newPage();
     for (const id of ["abc", "0", "-1"]) {
       const response = await page.goto(`${base}/playlists/${id}`);
@@ -107,6 +184,9 @@ export async function runPlaylistBrowserChecks(
         steps: 15,
       });
       await page.mouse.up();
+      // PointerSensor suppresses clicks for 50 ms after drag end. Wait for
+      // cleanup before the next independent click (e.g. starting playback).
+      await page.waitForTimeout(100);
     };
     const saved = page.waitForResponse(
       (response: any) => response.request().method() === "PATCH",

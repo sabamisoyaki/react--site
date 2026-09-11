@@ -1,3 +1,4 @@
+import { parseKeywords, rankByKeywords } from "@/lib/search/utils";
 import {
   ConflictError,
   ForbiddenError,
@@ -5,14 +6,26 @@ import {
 } from "@/server/http/errors";
 import * as repo from "@/server/repositories/playlists";
 
-export function listPlaylists(opts: Parameters<typeof repo.list>[0]) {
-  return repo.list(opts);
+export async function listPlaylists(opts: Parameters<typeof repo.list>[0]) {
+  const result = await repo.list(opts);
+  const keywords = parseKeywords(opts?.name ?? "");
+  return {
+    ...result,
+    data: rankByKeywords(result.data, keywords, (playlist) => [playlist.name]),
+  };
 }
 
-export function listPlaylistsCursor(
+export async function listPlaylistsCursor(
   opts?: Parameters<typeof repo.listCursor>[0],
 ) {
-  return repo.listCursor(opts);
+  const result = await repo.listCursor(opts);
+  // nextCursor はリポジトリが並べ替え前の順序から作っている。
+  // ここでの並べ替えはページ内で閉じているのでカーソルには影響しない。
+  const keywords = parseKeywords(opts?.name ?? "");
+  return {
+    ...result,
+    data: rankByKeywords(result.data, keywords, (playlist) => [playlist.name]),
+  };
 }
 
 export async function getPlaylist(id: number) {

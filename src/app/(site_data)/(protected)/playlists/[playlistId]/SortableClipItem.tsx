@@ -11,6 +11,7 @@ interface ClipData {
   title: string;
   clipName: string;
   user: string;
+  ownerId: number;
   service: string;
   startTime: number;
   endTime: number;
@@ -63,6 +64,7 @@ function SortableClipItem({
           username={clip.user || "名無し"}
           icon={clip.service || "unknown"}
           userId={userId}
+          ownerId={clip.ownerId}
           starttime={clip.startTime}
           endtime={clip.endTime}
           Id={clip.id}

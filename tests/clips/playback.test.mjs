@@ -2,10 +2,180 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
+
+const {
   buildPlaybackUrl,
   buildServiceUrl,
-} from "../../src/lib/clips/playback.ts";
+  clearPlaybackClipId,
+  openClipPlayback,
+} = await import("../../src/lib/clips/playback.ts");
+
+/**
+ * openClipPlayback は document.cookie / window への副作用が本体なので、
+ * 最小の DOM スタブを立てて副作用そのものを検証する。
+ * cookie は名前ごとに最後の書き込みを保持し、max-age=0 は削除として扱う。
+ */
+function installDomStub({ popupBlocked = false } = {}) {
+  const cookies = new Map();
+  const opened = [];
+  const events = [];
+  // 元の記述子を保存する。undefined を代入するだけだと own property が残り、
+  // `"document" in globalThis` が true のままになる。
+  const originalDocument = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "document",
+  );
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+
+  globalThis.document = {
+    set cookie(value) {
+      const [pair, ...attrs] = value.split(";").map((s) => s.trim());
+      const eq = pair.indexOf("=");
+      const name = pair.slice(0, eq);
+      if (attrs.some((a) => a.toLowerCase() === "max-age=0")) {
+        cookies.delete(name);
+        return;
+      }
+      cookies.set(name, decodeURIComponent(pair.slice(eq + 1)));
+    },
+    get cookie() {
+      return [...cookies].map(([k, v]) => `${k}=${v}`).join("; ");
+    },
+  };
+
+  globalThis.window = {
+    open: (url) => {
+      opened.push(url);
+      return popupBlocked ? null : {};
+    },
+    dispatchEvent: (event) => events.push(event),
+  };
+
+  return {
+    cookies,
+    opened,
+    events,
+    restore() {
+      for (const [key, descriptor] of [
+        ["document", originalDocument],
+        ["window", originalWindow],
+      ]) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else delete globalThis[key];
+      }
+    },
+  };
+}
+
+const supportedClip = {
+  name: "clip-a",
+  title: "Title A",
+  username: "alice",
+  service: "NETFLIX",
+  url: "/watch/70176435",
+  starttime: 10,
+  endtime: 20,
+};
+
+test("openClipPlayback writes the clipId cookie and event detail when id is valid", () => {
+  const dom = installDomStub();
+  try {
+    assert.equal(openClipPlayback({ ...supportedClip, id: 42 }), true);
+    assert.equal(dom.cookies.get("clipId"), "42");
+    assert.equal(dom.cookies.get("service"), "NETFLIX");
+    assert.equal(dom.events.length, 1);
+    assert.equal(dom.events[0].detail.clipId, 42);
+    assert.deepEqual(dom.opened, [
+      "https://www.netflix.com/watch/70176435?t=10",
+    ]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("openClipPlayback expires a stale clipId cookie when the clip has no id", () => {
+  const dom = installDomStub();
+  try {
+    openClipPlayback({ ...supportedClip, id: 42 });
+    assert.equal(dom.cookies.get("clipId"), "42");
+
+    // id を持たないクリップのハンドオフで前回の clipId が残ってはいけない
+    assert.equal(openClipPlayback({ ...supportedClip, name: "clip-b" }), true);
+    assert.equal(dom.cookies.has("clipId"), false);
+    assert.equal(dom.events.at(-1).detail.clipId, undefined);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("openClipPlayback rejects non-positive and unsafe ids", () => {
+  const dom = installDomStub();
+  try {
+    for (const id of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      openClipPlayback({ ...supportedClip, id });
+      assert.equal(dom.cookies.has("clipId"), false, `id=${id}`);
+    }
+  } finally {
+    dom.restore();
+  }
+});
+
+test("openClipPlayback writes no cookie at all for an unsupported service", () => {
+  const dom = installDomStub();
+  try {
+    // 再生できないのに cookie を上書きすると、再生中の別クリップのパネルに
+    // 誤ったコメントが出る。判定は cookie 書き込みより前でなければならない。
+    const result = openClipPlayback({
+      ...supportedClip,
+      service: "unknown",
+      id: 42,
+    });
+    assert.equal(result, false);
+    assert.equal(dom.cookies.size, 0);
+    assert.equal(dom.events.length, 0);
+    assert.equal(dom.opened.length, 0);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("openClipPlayback performs no handoff when the popup is blocked", () => {
+  const dom = installDomStub({ popupBlocked: true });
+  try {
+    assert.equal(openClipPlayback({ ...supportedClip, id: 42 }), false);
+    assert.equal(dom.cookies.size, 0);
+    assert.equal(dom.events.length, 0);
+    assert.deepEqual(dom.opened, [
+      "https://www.netflix.com/watch/70176435?t=10",
+    ]);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("openClipPlayback does not clobber a valid clipId with a failed handoff", () => {
+  const dom = installDomStub();
+  try {
+    openClipPlayback({ ...supportedClip, id: 42 });
+    openClipPlayback({ ...supportedClip, service: "unknown" });
+    assert.equal(dom.cookies.get("clipId"), "42");
+  } finally {
+    dom.restore();
+  }
+});
+
+test("clearPlaybackClipId expires the cookie", () => {
+  const dom = installDomStub();
+  try {
+    openClipPlayback({ ...supportedClip, id: 42 });
+    clearPlaybackClipId();
+    assert.equal(dom.cookies.has("clipId"), false);
+    // 他のレガシー cookie は残す（プレイヤー連携が読んでいる）
+    assert.equal(dom.cookies.get("name"), "clip-a");
+  } finally {
+    dom.restore();
+  }
+});
 
 test("buildServiceUrl prepends the service base to relative paths", () => {
   assert.equal(

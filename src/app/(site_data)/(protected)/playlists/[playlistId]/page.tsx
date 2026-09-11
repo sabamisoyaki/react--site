@@ -54,6 +54,8 @@ export default async function PlaylistPage({ params }: PlaylistPageProps) {
         title: pc.clip.title,
         clipName: pc.clip.name,
         user: pc.clip.user.name ?? "名無し",
+        // クリップ所有者はコメントのモデレーションができる
+        ownerId: Number(pc.clip.userId),
         service: pc.clip.vod.code,
         startTime: pc.clip.startMs / 1000,
         endTime: pc.clip.endMs / 1000,

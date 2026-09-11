@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_QUERY_LENGTH } from "@/lib/search/utils";
+
 import {
   cursorPaginationQuerySchema,
   hardDeleteQuerySchema,
@@ -16,14 +18,14 @@ export const clipListQuerySchema = paginationQuerySchema
   .extend({
     userId: idSchema.optional(),
     vodId: idSchema.optional(),
-    title: z.string().optional(),
+    title: z.string().max(MAX_QUERY_LENGTH).optional(),
   });
 
 export const clipCursorListQuerySchema = cursorPaginationQuerySchema
   .extend({
     userId: idSchema.optional(),
     vodId: idSchema.optional(),
-    title: z.string().optional(),
+    title: z.string().max(MAX_QUERY_LENGTH).optional(),
   })
   .strict();
 
@@ -53,7 +55,21 @@ export const clipUpdateBodySchema = nonEmptyBody(
       url: z.url().optional(),
       epnum: z.string().nullable().optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((data, ctx) => {
+      // 片方だけの PATCH はサービス層で現在値とマージして検証する。
+      if (
+        data.startMs !== undefined &&
+        data.endMs !== undefined &&
+        data.endMs <= data.startMs
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "endMs must be greater than startMs",
+          path: ["endMs"],
+        });
+      }
+    }),
 );
 
 export const clipIdParamSchema = z.object({ clipId: idSchema });

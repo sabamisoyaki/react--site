@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  clipCommentAtMsSchema,
+  clipCommentBodySchema,
+} from "@/server/schemas/comments.schema";
+import { idSchema } from "@/server/schemas/common";
 import { legacyClipCreateBodySchema } from "@/server/schemas/legacy-clips.schema";
 
 const uuidSchema = z.uuid();
@@ -60,5 +65,35 @@ export const extensionSyncBodySchema = z
     });
   });
 
+export const extensionCommentListQuerySchema = z
+  .object({
+    extensionInstanceId: uuidSchema,
+    cursor: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+  })
+  .strict();
+
+export const extensionCommentCreateBodySchema = z
+  .object({
+    extensionInstanceId: uuidSchema,
+    body: clipCommentBodySchema,
+    // 2026-08-06 に拡張リポと合意して解禁。省略・null は「クリップ全体へのコメント」。
+    // 拡張側は送信前に [startMs, endMs] へクランプする方針なので、
+    // サーバー側の範囲検証は保険として残す（超過は 400 AT_MS_OUT_OF_RANGE）。
+    atMs: clipCommentAtMsSchema,
+    clientRequestId: z.uuid().optional(),
+  })
+  .strict();
+
+export const extensionClipIdParamSchema = z.object({
+  clipId: idSchema,
+});
+
 export type ExtensionLinkBody = z.infer<typeof extensionLinkBodySchema>;
 export type ExtensionSyncBody = z.infer<typeof extensionSyncBodySchema>;
+export type ExtensionCommentListQuery = z.infer<
+  typeof extensionCommentListQuerySchema
+>;
+export type ExtensionCommentCreateBody = z.infer<
+  typeof extensionCommentCreateBodySchema
+>;

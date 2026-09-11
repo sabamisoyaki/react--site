@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  MAX_QUERY_LENGTH,
-  parseKeywords,
-  scoreFields,
-} from "../../src/lib/search/utils.ts";
+
+const { MAX_QUERY_LENGTH, parseKeywords, scoreFields } = await import(
+  "../../src/lib/search/utils.ts"
+);
 
 test("parseKeywords trims whitespace and splits on ASCII and full-width spaces", () => {
   assert.deepEqual(parseKeywords("  Netflix\u3000Prime   Video  "), [

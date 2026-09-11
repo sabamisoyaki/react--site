@@ -141,10 +141,11 @@ export async function rotateExtensionAuthToken(
     SET
       extension_auth_hash = ${extensionAuthHash},
       expires_at = ${expiresAt},
-      last_seen_at = ${now}
+      last_seen_at = GREATEST(last_seen_at, ${now})
     WHERE id = ${linkedExtension.id}
       AND extension_auth_hash = ${linkedExtension.extensionAuthHash}
       AND revoked_at IS NULL
+      AND expires_at > ${now}
     RETURNING id
   `;
 
@@ -166,7 +167,6 @@ export async function syncExtensionItems(
   );
 
   const acceptedItemIds: string[] = [];
-  const now = new Date();
   const clipInputs = await Promise.all(
     body.items.map(async (item) => ({
       clientItemId: item.clientItemId,
@@ -225,11 +225,17 @@ export async function syncExtensionItems(
       acceptedItemIds.push(item.clientItemId);
     }
 
-    await tx.$executeRaw`
+    const activityAt = new Date();
+    const updated = await tx.$queryRaw<Array<{ id: bigint }>>`
       UPDATE linked_extensions
-      SET last_seen_at = ${now}
+      SET last_seen_at = GREATEST(last_seen_at, ${activityAt})
       WHERE id = ${linkedExtension.id}
+        AND extension_auth_hash = ${linkedExtension.extensionAuthHash}
+        AND revoked_at IS NULL
+        AND expires_at > ${activityAt}
+      RETURNING id
     `;
+    if (updated.length !== 1) throw new UnauthorizedError("Unauthorized");
   });
 
   return { acceptedItemIds };
@@ -305,7 +311,7 @@ export function parseBearerToken(authorizationHeader: string | null) {
   return match?.[1]?.trim() || null;
 }
 
-async function authenticateLinkedExtension(
+export async function authenticateLinkedExtension(
   extensionInstanceId: string,
   extensionAuthToken: string,
 ) {

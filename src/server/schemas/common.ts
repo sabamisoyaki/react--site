@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-export const idSchema = z.coerce.number().int().min(1);
+// DB の識別子は BIGINT だが、現行の HTTP 契約は JSON number を使う。
+// JavaScript が正確に扱えない値を丸めて別リソースへ解決しないよう、API 境界では
+// safe integer に制限する。将来この上限へ近づく前に ID を文字列契約へ移行する。
+export const idSchema = z.coerce
+  .number()
+  .int()
+  .min(1)
+  .max(Number.MAX_SAFE_INTEGER);
 
 export const paginationQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),

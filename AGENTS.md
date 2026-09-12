@@ -51,6 +51,16 @@ command is judged by which group its effect puts it in.
   If any step cannot be completed — the permission is ambiguous, the inventory cannot be read, no
   recovery point is possible — stop and say so instead of proceeding.
 
+Commit messages are written in **Japanese** — subject and body alike, on every commit,
+whatever language the code, the surrounding documents, or the conversation behind the change
+happen to be in. Conventional-commit prefixes (`fix:`, `chore(agents):`) stay as they are; the
+prose after them is Japanese.
+
+Write them for someone who was not there. Say what was wrong and why it mattered, not only what
+moved. Do not lean on context the reader cannot reach — a review, a chat, a session, a local
+branch on your machine — because none of that survives into the log. If a reason is worth giving,
+spell the reason out.
+
 Two things to check when committing:
 
 - Confirm the branch with `git branch --show-current` before `git add`. The checkout can change

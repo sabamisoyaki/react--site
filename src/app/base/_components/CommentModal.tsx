@@ -3,48 +3,34 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
+  CommentApiError,
+  createClipComment,
+  deleteClipComment,
+  dismissClipCommentReports,
+  listClipCommentReports,
+  listClipComments,
+  reportClipComment,
+} from "@/lib/comments/client";
+import {
   upsertCommentsById,
   upsertReportedCommentsById,
 } from "@/lib/comments/collections";
 import {
   COMMENT_BODY_MAX_CODE_POINTS,
-  countUnicodeCodePoints,
   isWithinUnicodeCodePointLimit,
-  limitUnicodeCodePoints,
   REPORT_NOTE_MAX_CODE_POINTS,
 } from "@/lib/comments/text";
-
-const REPORT_REASON_LABELS: Record<ReportReason, string> = {
-  spam: "スパム",
-  harassment: "嫌がらせ",
-  spoiler: "ネタバレ",
-  other: "その他",
-};
-
-type Comment = {
-  id: number;
-  clipId: number;
-  userId: number | null;
-  username: string | null;
-  body: string;
-  /** 動画内の位置(ms)。null は「クリップ全体へのコメント」。 */
-  atMs: number | null;
-  createdAt: string;
-};
+import type {
+  ClipComment as Comment,
+  ReportReason,
+  ReportSummary,
+} from "@/lib/comments/types";
+import CommentComposer from "./comments/CommentComposer";
+import CommentReportForm from "./comments/CommentReportForm";
+import { REPORT_REASON_LABELS } from "./comments/reportReasons";
+import { useCommentDialogFocus } from "./comments/useCommentDialogFocus";
 
 type ListState = "loading" | "ready" | "error";
-type ReportReason = "spam" | "harassment" | "spoiler" | "other";
-type ReportSummary = {
-  reportCount: number;
-  recentReports: Array<{
-    reason: ReportReason;
-    note: string | null;
-    createdAt: string;
-  }>;
-};
-type ReportSummaryRow = ReportSummary & {
-  comment: Comment;
-};
 type ReportLoadError = {
   cursor: string | null;
 };
@@ -86,7 +72,6 @@ export default function CommentModal({
 }) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   const submitRequestIdRef = useRef<string | null>(null);
   const submittingRef = useRef(false);
@@ -136,8 +121,6 @@ export default function CommentModal({
     viewerId != null && String(comment.userId) !== viewerId;
 
   const trimmedBody = body.trim();
-  const bodyCodePointCount = countUnicodeCodePoints(body);
-  const reportNoteCodePointCount = countUnicodeCodePoints(reportNote);
   const canSubmit =
     trimmedBody !== "" &&
     isWithinUnicodeCodePointLimit(body, COMMENT_BODY_MAX_CODE_POINTS) &&
@@ -191,15 +174,11 @@ export default function CommentModal({
       setListState("loading");
       setErrorMessage("");
       try {
-        const res = await fetch(`/api/v1/clips/${clipId}/comments`, { signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
+        const page = await listClipComments(clipId, { signal });
         if (!isRequestCurrent(generation)) return;
-        const incoming = Array.isArray(payload.data)
-          ? (payload.data as Comment[])
-          : [];
+        const incoming = page.data;
         setComments((previous) => upsertCommentsById(previous, incoming));
-        setNextCursor(payload.meta?.nextCursor ?? null);
+        setNextCursor(page.nextCursor);
         setListState("ready");
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError")
@@ -226,19 +205,9 @@ export default function CommentModal({
         reportLoadRequestRef.current === reportLoadRequest;
       setLoadingReports(true);
       try {
-        const query = cursor
-          ? `?cursor=${encodeURIComponent(cursor)}&limit=100`
-          : "?limit=100";
-        const res = await fetch(
-          `/api/v1/clips/${clipId}/comment-reports${query}`,
-          { signal },
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
+        const page = await listClipCommentReports(clipId, { cursor, signal });
         if (!isCurrentReportLoad()) return;
-        const rows = Array.isArray(payload.data)
-          ? (payload.data as ReportSummaryRow[])
-          : [];
+        const rows = page.data;
         const summaries: Record<number, ReportSummary> = {};
         for (const row of rows) {
           summaries[row.comment.id] = {
@@ -250,7 +219,7 @@ export default function CommentModal({
         setReportSummaries((previous) =>
           cursor ? { ...previous, ...summaries } : summaries,
         );
-        setReportNextCursor(payload.meta?.nextCursor ?? null);
+        setReportNextCursor(page.nextCursor);
         setReportLoadError(null);
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError")
@@ -297,60 +266,7 @@ export default function CommentModal({
     };
   }, [isOpen, loadFirstPage, loadReportSummaries]);
 
-  // モーダルへフォーカスを移し、Tab を内部に閉じ込め、閉じたら元へ戻す。
-  useEffect(() => {
-    if (!isOpen) return;
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    dialogRef.current?.focus();
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeModal();
-        return;
-      }
-      if (e.key !== "Tab" || !dialogRef.current) return;
-      const focusable = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-        ),
-      );
-      if (focusable.length === 0) {
-        e.preventDefault();
-        dialogRef.current.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      const active = document.activeElement;
-      if (
-        e.shiftKey &&
-        (active === first ||
-          active === dialogRef.current ||
-          !dialogRef.current.contains(active))
-      ) {
-        e.preventDefault();
-        last?.focus();
-      } else if (
-        !e.shiftKey &&
-        (active === last || !dialogRef.current.contains(active))
-      ) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
-      previousFocusRef.current?.focus();
-    };
-  }, [closeModal, isOpen]);
+  useCommentDialogFocus(isOpen, dialogRef, closeModal);
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -359,18 +275,12 @@ export default function CommentModal({
     setLoadingMore(true);
     setErrorMessage("");
     try {
-      const res = await fetch(
-        `/api/v1/clips/${clipId}/comments?cursor=${encodeURIComponent(nextCursor)}`,
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const payload = await res.json();
+      const page = await listClipComments(clipId, { cursor: nextCursor });
       if (!isRequestCurrent(generation)) return;
-      const incoming = Array.isArray(payload.data)
-        ? (payload.data as Comment[])
-        : [];
+      const incoming = page.data;
       // 追加読みは id DESC の続きなので、常に末尾に足す
       setComments((previous) => upsertCommentsById(previous, incoming));
-      setNextCursor(payload.meta?.nextCursor ?? null);
+      setNextCursor(page.nextCursor);
     } catch {
       if (!isRequestCurrent(generation)) return;
       setErrorMessage("続きを読み込めませんでした。");
@@ -394,6 +304,14 @@ export default function CommentModal({
     setErrorMessage("");
   };
 
+  const cancelReport = (commentId: number) => {
+    const generation = requestGenerationRef.current;
+    setReportTarget(null);
+    focusAfterDomUpdate(generation, () =>
+      reportButtonRefs.current.get(commentId),
+    );
+  };
+
   const report = async (comment: Comment) => {
     if (!canSubmitReport) return;
     const generation = requestGenerationRef.current;
@@ -402,43 +320,11 @@ export default function CommentModal({
     setReportingId(comment.id);
     setErrorMessage("");
     try {
-      const res = await fetch(
-        `/api/v1/clips/${clipId}/comments/${comment.id}/reports`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            reason: reportReason,
-            note: reportNote.trim() || null,
-          }),
-        },
-      );
+      const result = await reportClipComment(clipId, comment.id, {
+        reason: reportReason,
+        note: reportNote.trim() || null,
+      });
       if (!isRequestCurrent(generation)) return;
-
-      if (res.status === 401) {
-        setErrorMessage("通報するにはログインが必要です。");
-        return;
-      }
-      if (res.status === 409) {
-        const payload = (await res.json().catch(() => null)) as {
-          code?: string;
-        } | null;
-        if (!isRequestCurrent(generation)) return;
-        // 既に通報済みでも利用者から見た結果は同じ。トランザクション競合など
-        // 別種の409は成功扱いせず、再試行できるエラーとして表示する。
-        if (payload?.code !== "ALREADY_REPORTED") {
-          throw new Error(`HTTP 409: ${payload?.code ?? "unknown conflict"}`);
-        }
-        setReportedIds((previous) =>
-          previous.includes(comment.id) ? previous : [...previous, comment.id],
-        );
-        setReportTarget(null);
-        focusAfterDomUpdate(generation, () =>
-          commentArticleRefs.current.get(comment.id),
-        );
-        return;
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       setReportedIds((previous) =>
         previous.includes(comment.id) ? previous : [...previous, comment.id],
@@ -447,10 +333,16 @@ export default function CommentModal({
       focusAfterDomUpdate(generation, () =>
         commentArticleRefs.current.get(comment.id),
       );
-      void loadReportSummaries(undefined, null, generation);
-    } catch {
+      if (result === "created") {
+        void loadReportSummaries(undefined, null, generation);
+      }
+    } catch (error) {
       if (!isRequestCurrent(generation)) return;
-      setErrorMessage("通報できませんでした。");
+      setErrorMessage(
+        error instanceof CommentApiError && error.status === 401
+          ? "通報するにはログインが必要です。"
+          : "通報できませんでした。",
+      );
     } finally {
       if (isRequestCurrent(generation)) setReportingId(null);
     }
@@ -463,15 +355,7 @@ export default function CommentModal({
     setResolvingId(comment.id);
     setErrorMessage("");
     try {
-      const res = await fetch(
-        `/api/v1/clips/${clipId}/comments/${comment.id}/reports`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ resolution: "dismissed" }),
-        },
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await dismissClipCommentReports(clipId, comment.id);
       if (!isRequestCurrent(generation)) return;
       setReportSummaries((previous) => {
         const next = { ...previous };
@@ -501,22 +385,8 @@ export default function CommentModal({
     setDeletingId(comment.id);
     setErrorMessage("");
     try {
-      const res = await fetch(
-        `/api/v1/clips/${clipId}/comments/${comment.id}`,
-        { method: "DELETE" },
-      );
+      await deleteClipComment(clipId, comment.id);
       if (!isRequestCurrent(generation)) return;
-
-      if (res.status === 401) {
-        setErrorMessage("削除するにはログインが必要です。");
-        return;
-      }
-      if (res.status === 403) {
-        setErrorMessage("このコメントを削除する権限がありません。");
-        return;
-      }
-      // 既に他方が消していた場合も、画面上は消えていればよい
-      if (!res.ok && res.status !== 404) throw new Error(`HTTP ${res.status}`);
 
       setComments((prev) => prev.filter((c) => c.id !== comment.id));
       focusAfterDomUpdate(generation, () =>
@@ -524,9 +394,16 @@ export default function CommentModal({
           ? null
           : commentArticleRefs.current.get(nextFocusId),
       );
-    } catch {
+    } catch (error) {
       if (!isRequestCurrent(generation)) return;
-      setErrorMessage("コメントを削除できませんでした。");
+      const status = error instanceof CommentApiError ? error.status : null;
+      setErrorMessage(
+        status === 401
+          ? "削除するにはログインが必要です。"
+          : status === 403
+            ? "このコメントを削除する権限がありません。"
+            : "コメントを削除できませんでした。",
+      );
     } finally {
       if (isRequestCurrent(generation)) setDeletingId(null);
     }
@@ -540,6 +417,13 @@ export default function CommentModal({
     focusAfterDomUpdate(generation, () => reportRetryButtonRef.current);
   };
 
+  const changeBody = (nextBody: string) => {
+    if (nextBody === body) return;
+    bodyRevisionRef.current += 1;
+    setBody(nextBody);
+    submitRequestIdRef.current = null;
+  };
+
   const submit = async () => {
     if (!canSubmit || submittingRef.current) return;
     const generation = requestGenerationRef.current;
@@ -551,30 +435,10 @@ export default function CommentModal({
     setSubmitting(true);
     setErrorMessage("");
     try {
-      const res = await fetch(`/api/v1/clips/${clipId}/comments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: trimmedBody, clientRequestId }),
+      const created = await createClipComment(clipId, {
+        body: trimmedBody,
+        clientRequestId,
       });
-      if (!isRequestCurrent(generation)) return;
-
-      if (res.status === 401) {
-        setErrorMessage("コメントするにはログインが必要です。");
-        return;
-      }
-      if (res.status === 404) {
-        setErrorMessage("このクリップは削除されています。");
-        return;
-      }
-      if (res.status === 429) {
-        setErrorMessage(
-          "投稿が続いています。1分ほど待ってからお試しください。",
-        );
-        return;
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const created: Comment = await res.json();
       if (!isRequestCurrent(generation)) return;
       // 並びは新しい順なので先頭に足す。既存のカーソルは末尾基準なので影響しない。
       setComments((previous) => upsertCommentsById(previous, [created]));
@@ -583,10 +447,17 @@ export default function CommentModal({
         setBody("");
         submitRequestIdRef.current = null;
       }
-    } catch {
+    } catch (error) {
       if (!isRequestCurrent(generation)) return;
+      const status = error instanceof CommentApiError ? error.status : null;
+      const messages: Record<number, string> = {
+        401: "コメントするにはログインが必要です。",
+        404: "このクリップは削除されています。",
+        429: "投稿が続いています。1分ほど待ってからお試しください。",
+      };
       setErrorMessage(
-        "コメントを投稿できませんでした。時間をおいて再度お試しください。",
+        (status == null ? undefined : messages[status]) ??
+          "コメントを投稿できませんでした。時間をおいて再度お試しください。",
       );
     } finally {
       if (isRequestCurrent(generation)) {
@@ -762,68 +633,16 @@ export default function CommentModal({
                   </div>
                 )}
                 {reportTarget?.id === comment.id && (
-                  <div className="mt-3 flex flex-col gap-2 rounded-lg bg-chip p-2.5">
-                    <label className="flex flex-col gap-1 text-[12px] font-extrabold">
-                      理由
-                      <select
-                        value={reportReason}
-                        onChange={(event) =>
-                          setReportReason(event.target.value as ReportReason)
-                        }
-                        className="rounded-lg border-2 border-ink bg-white px-2 py-1.5"
-                      >
-                        {Object.entries(REPORT_REASON_LABELS).map(
-                          ([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ),
-                        )}
-                      </select>
-                    </label>
-                    <label className="flex flex-col gap-1 text-[12px] font-extrabold">
-                      補足（任意）
-                      <textarea
-                        value={reportNote}
-                        onChange={(event) =>
-                          setReportNote(
-                            limitUnicodeCodePoints(
-                              event.target.value,
-                              REPORT_NOTE_MAX_CODE_POINTS,
-                            ),
-                          )
-                        }
-                        className="min-h-16 rounded-lg border-2 border-ink bg-white px-2 py-1.5"
-                      />
-                    </label>
-                    <div className="flex items-center justify-end gap-2">
-                      <span className="mr-auto font-data text-[11px] text-ink-muted tabular-nums">
-                        {reportNoteCodePointCount} /{" "}
-                        {REPORT_NOTE_MAX_CODE_POINTS}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const generation = requestGenerationRef.current;
-                          setReportTarget(null);
-                          focusAfterDomUpdate(generation, () =>
-                            reportButtonRefs.current.get(comment.id),
-                          );
-                        }}
-                        className="cursor-pointer rounded-full border-2 border-ink bg-white px-3 py-1 text-[12px] font-extrabold"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => report(comment)}
-                        disabled={!canSubmitReport}
-                        className="cursor-pointer rounded-full bg-accent px-3 py-1 text-[12px] font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {reportingId === comment.id ? "送信中…" : "送信"}
-                      </button>
-                    </div>
-                  </div>
+                  <CommentReportForm
+                    reportReason={reportReason}
+                    reportNote={reportNote}
+                    submitting={reportingId === comment.id}
+                    canSubmitReport={canSubmitReport}
+                    onReasonChange={setReportReason}
+                    onNoteChange={setReportNote}
+                    onCancel={() => cancelReport(comment.id)}
+                    onSubmit={() => void report(comment)}
+                  />
                 )}
               </article>
             ))}
@@ -860,36 +679,13 @@ export default function CommentModal({
 
         {/* 投稿 */}
         {isSignedIn ? (
-          <div className="flex flex-col gap-2">
-            <textarea
-              className="min-h-20 w-full resize-y rounded-xl border-2 border-ink px-3.5 py-2 text-[14px] outline-none placeholder:text-ink-muted focus:border-accent"
-              placeholder="この切り抜きの感想を書く"
-              value={body}
-              onChange={(e) => {
-                const nextBody = limitUnicodeCodePoints(
-                  e.target.value,
-                  COMMENT_BODY_MAX_CODE_POINTS,
-                );
-                if (nextBody === body) return;
-                bodyRevisionRef.current += 1;
-                setBody(nextBody);
-                submitRequestIdRef.current = null;
-              }}
-            />
-            <div className="flex items-center gap-3">
-              <span className="font-data text-[11.5px] text-ink-muted tabular-nums">
-                {bodyCodePointCount} / {COMMENT_BODY_MAX_CODE_POINTS}
-              </span>
-              <button
-                type="button"
-                onClick={submit}
-                disabled={!canSubmit}
-                className="ml-auto cursor-pointer rounded-full bg-accent px-5 py-2 text-[13px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
-              >
-                {submitting ? "送信中…" : "コメントする"}
-              </button>
-            </div>
-          </div>
+          <CommentComposer
+            body={body}
+            submitting={submitting}
+            canSubmit={canSubmit}
+            onBodyChange={changeBody}
+            onSubmit={submit}
+          />
         ) : (
           <p className="text-[13px] text-ink-muted">
             コメントするにはログインが必要です。

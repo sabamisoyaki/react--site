@@ -67,5 +67,12 @@ test("CommentModal keeps recovered comments visible and exposes list retry", () 
   assert.match(source, /\{comments\.length > 0 &&\s*comments\.map/);
   assert.match(source, /onClick=\{\(\) => void retryFirstPage\(\)\}/);
   assert.doesNotMatch(source, /listState === "ready" &&\s*comments\.map/);
-  assert.doesNotMatch(source, /maxLength=/);
+  for (const file of [
+    "CommentModal.tsx",
+    "comments/CommentComposer.tsx",
+    "comments/CommentReportForm.tsx",
+  ]) {
+    const component = readFileSync(`src/app/base/_components/${file}`, "utf8");
+    assert.doesNotMatch(component, /maxLength=/);
+  }
 });

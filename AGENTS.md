@@ -78,23 +78,53 @@ none of it, and neither does a fresh agent session on another machine.
 
 ## Validation
 
-- Standard local gate for code-only work:
-  - `npm run codex:quick`
-- Schema and migration gate for Prisma work:
-  - `npm run codex:schema`
-- DB connectivity gate for DB-backed work:
-  - `npm run codex:db`
-- Full pre-handoff gate for high-risk changes:
-  - `npm run codex:full`
+- Use Node.js 24.x and installed dependencies. On Windows PowerShell, use `npm.cmd`
+  instead of `npm` if the execution policy blocks `npm.ps1`; no policy change is needed.
+  `node scripts/codex-harness.mjs <quick|schema|db|full>` also works directly.
+- For code changes, run `npm run codex:quick`: regenerate Prisma Client, generate Next.js
+  route types, lint, run all `tests/**/*.test.mjs`, and typecheck. Prisma generation needs
+  `DATABASE_URL` in `.env.local`, `.env`, or the process environment, but does not connect to DB.
+- For Prisma schema, migrations, or augment changes, also run `npm run codex:schema`:
+  Prisma validation and an augment check that fails if generated SQL is missing.
+  This does not replay SQL, check applied-file checksums, or verify the live DB schema.
+  Review raw-SQL removal warnings and any hand-written inverse SQL separately.
+- For DB-backed behavior changes, also run `npm run codex:db`: configuration, optional
+  SSH tunnel, and migration status. This is a connectivity/history check, not a behavior test.
+- For auth, authorization, extension-token lifecycle, migration SQL/generation, or destructive
+  data behavior changes, run `npm run codex:full` (quick + schema + db + production build).
+  A successful full run covers the individual gates; do not repeat them without a reason.
+- For documentation-only changes, check the changed instructions, links, and commands;
+  application gates are not required unless executable behavior also changed.
+- If DB access is unavailable, complete independent checks and run `npm run build` separately
+  when full validation is required. Report passed, failed, and unrun checks distinctly.
 
 ## Database Workflow
 
-- Prisma changes must follow this order:
+- Separate migration authoring from deployment. `migrate dev` (including `--create-only`)
+  is only for a dedicated development database with a disposable shadow database. Never point
+  it at a shared, staging, production, or otherwise non-disposable database.
+- Before DB commands, identify the target environment without printing credentials.
+  CLI commands below assume the intended `DATABASE_URL` is loaded. For an env file, use
+  `node --env-file=<selected-env-file> node_modules/prisma/build/index.js <arguments>`;
+  for augment use `node --env-file=<selected-env-file> --import tsx scripts/prisma-augment.ts`.
+  The filename `.env.local` does not prove the database is disposable.
+- On the dedicated development database, follow this order:
   1. Edit `prisma/schema.prisma`
   2. Create a skeleton migration with `npx prisma migrate dev --create-only --name <name>`
-  3. Run `node --import tsx scripts/prisma-augment.ts`
-  4. Review `prisma/migrations/<timestamp>_<name>/migration.sql`
-  5. Apply with `npx prisma migrate dev`
+  3. Verify a new migration directory was created for this change and is the latest directory.
+     Confirm its migration is unapplied before writing: augment selects the latest file and
+     does not query the database to protect applied migrations.
+  4. Run `node --import tsx scripts/prisma-augment.ts`
+  5. Review `prisma/migrations/<timestamp>_<name>/migration.sql`, then run `npm run codex:schema`
+  6. Apply to the dedicated development database with `npx prisma migrate dev`
+  7. Regenerate Prisma Client with `npx prisma generate` (Prisma 7 does not do this automatically),
+     then run the required validation gates.
+- If a dedicated development/shadow database is unavailable, prepare a new, unapplied SQL
+  migration and complete static checks. Report that migration replay/application is unverified;
+  do not substitute the shared database for development or run a reset to unblock the work.
+- Deployment to shared/staging/production databases uses reviewed, committed migrations with
+  `npx prisma migrate deploy` only when that deployment is in the user's authorized scope.
+  Run `npx prisma generate` for the application build and check migration status after deployment.
 - If Prisma tries to generate follow-up diff noise around partial indexes, stop and inspect before proceeding.
 - シャドウDB は履歴を空の Postgres へ先頭から再生する。`20260430010000_init`
   より前に何かを挿すと再生が止まり、`migrate dev` が使えなくなる。

@@ -1,7 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import process from "node:process";
 
+const require = createRequire(import.meta.url);
 const ROOT_ENV_FILE = ".env.local";
 const REQUIRED_DB_KEYS = ["DATABASE_URL"];
 
@@ -29,14 +32,24 @@ function logStep(label) {
   console.log(`\n[codex] ${label}`);
 }
 
-function run(command, args, options = {}) {
-  const printable = [command, ...args].join(" ");
+function runNode(args, options = {}) {
+  const printable = ["node", ...args].join(" ");
   console.log(`[codex] > ${printable}`);
-  execFileSync(command, args, {
+  execFileSync(process.execPath, args, {
     stdio: "inherit",
+    windowsHide: true,
     env: options.env ?? process.env,
     cwd: options.cwd ?? process.cwd(),
   });
+}
+
+// Execute the installed JavaScript CLI directly. npm/npx shims cannot be
+// launched with execFileSync on Windows without a shell.
+function runCli(packageName, binName, args, options = {}) {
+  const packagePath = require.resolve(`${packageName}/package.json`);
+  const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
+  const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin[binName];
+  runNode([resolve(dirname(packagePath), bin), ...args], options);
 }
 
 function assertNodeVersion() {
@@ -80,17 +93,28 @@ function runQuick() {
   assertNodeVersion();
   console.log(`[codex] Node ${process.versions.node}`);
 
+  logStep("quick: prisma generate");
+  runCli("prisma", "prisma", ["generate"], {
+    env: existsSync(ROOT_ENV_FILE) ? createEnvWithDotEnvLocal() : process.env,
+  });
+
   logStep("quick: next typegen");
-  run("npx", ["next", "typegen"]);
+  runCli("next", "next", ["typegen"]);
 
   logStep("quick: lint");
-  run("npm", ["run", "lint"]);
+  runCli("@biomejs/biome", "biome", ["check", "."]);
 
   logStep("quick: tests");
-  run("npm", ["test"]);
+  runNode(["--test", "tests/**/*.test.mjs"]);
 
   logStep("quick: typecheck");
-  run("npm", ["run", "typecheck"]);
+  runCli("typescript", "tsc", [
+    "-p",
+    "tsconfig.typecheck.json",
+    "--noEmit",
+    "--pretty",
+    "false",
+  ]);
 }
 
 function runSchema() {
@@ -99,10 +123,10 @@ function runSchema() {
     : process.env;
 
   logStep("schema: prisma validate");
-  run("npx", ["prisma", "validate"], { env });
+  runCli("prisma", "prisma", ["validate"], { env });
 
   logStep("schema: prisma-augment check");
-  run("node", ["--import", "tsx", "scripts/prisma-augment.ts", "--check"], {
+  runNode(["--import", "tsx", "scripts/prisma-augment.ts", "--check"], {
     env,
   });
 }
@@ -115,7 +139,7 @@ function runDb() {
 
   if (hasSshTunnelConfig(localEnv)) {
     logStep("db: start tunnel");
-    run("node", ["scripts/start-tunnel.mjs"]);
+    runNode(["scripts/start-tunnel.mjs"]);
   } else {
     logStep("db: start tunnel");
     console.log(
@@ -124,7 +148,7 @@ function runDb() {
   }
 
   logStep("db: prisma migrate status");
-  run("npx", ["prisma", "migrate", "status"], {
+  runCli("prisma", "prisma", ["migrate", "status"], {
     env: { ...process.env, ...localEnv },
   });
 }
@@ -135,7 +159,7 @@ function runFull() {
   runDb();
 
   logStep("full: build");
-  run("npm", ["run", "build"]);
+  runCli("next", "next", ["build"]);
 }
 
 const mode = process.argv[2];

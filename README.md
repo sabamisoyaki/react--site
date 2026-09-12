@@ -28,44 +28,38 @@ Next.js App Router application for FigFingers. The current branch uses a Prisma/
 Use the Codex harness scripts to keep AI-driven changes inside a repeatable validation flow:
 
 - `npm run codex:quick`
-  - checks Node 24.x, lint, unit tests, and TypeScript
+  - checks Node 24.x, regenerates Prisma Client and Next.js route types, then runs lint, all tests, and TypeScript
 - `npm run codex:schema`
-  - validates Prisma schema and runs `prisma-augment` in check mode
+  - validates Prisma schema and fails if `prisma-augment` finds SQL that still needs generating; does not replay migrations
 - `npm run codex:db`
   - verifies `.env.local`, starts the SSH tunnel when `DB_SSH_USER` and `DB_SSH_PORT` are set, and runs `prisma migrate status`
 - `npm run codex:full`
   - runs all of the above plus `npm run build`
 
-Codex may inspect git state and can submit PR reviews or comments when explicitly requested, but it does not run commit, push, tag, PR creation, or merge commands. When those steps are needed, it prints suggested commands for you to run manually.
+In Windows PowerShell, use `npm.cmd run codex:quick` if `npm.ps1` is blocked. The harness also runs directly with `node scripts/codex-harness.mjs quick`; it launches installed JavaScript CLIs without npm/npx command shims. Prisma commands need a configured `DATABASE_URL`, but quick/schema validation does not connect to the database.
 
-Repository-specific Codex guidance lives in [AGENTS.md](AGENTS.md) and the operational workflow is documented in [docs/ai-development.md](docs/ai-development.md).
+Repository-specific Codex guidance, Git permissions, and required validation gates live in [AGENTS.md](AGENTS.md). Local commits are allowed; outward-facing Git/PR actions follow its separate permission rules. The `docs/` directory is an untracked local workspace.
 
 ## Database
 
-This repo expects PostgreSQL. The current migration history has been rebuilt into a single init migration:
+This repo expects PostgreSQL. The migration history starts with:
 
 - [prisma/migrations/20260430010000_init/migration.sql](prisma/migrations/20260430010000_init/migration.sql)
 
-For a fresh local database:
+For a fresh, dedicated development database, load its `DATABASE_URL`, then apply the existing migrations and generate the client:
 
 ```bash
-npx prisma migrate reset --force
+npx prisma migrate deploy
+npx prisma generate
 ```
 
 ## Prisma Augment Workflow
 
 This project does not rely on plain `prisma migrate dev` alone. Partial indexes and partial unique indexes are generated from comments in [prisma/schema.prisma](prisma/schema.prisma) by [scripts/prisma-augment.ts](scripts/prisma-augment.ts).
 
-When adding a new migration:
+Follow the [Database Workflow in AGENTS.md](AGENTS.md#database-workflow). Author migrations using a dedicated development database and disposable shadow database. Before augment writes to the latest migration, verify that file belongs to the current change and is unapplied. After reviewing and applying it locally, explicitly run `npx prisma generate`.
 
-1. Edit `prisma/schema.prisma`
-2. Create a skeleton migration
-   `npx prisma migrate dev --create-only --name <name>`
-3. Append augment-managed SQL
-   `node --import tsx scripts/prisma-augment.ts`
-4. Review the generated `migration.sql`
-5. Apply it
-   `npx prisma migrate dev`
+Shared, staging, and production databases receive reviewed, committed migrations via `prisma migrate deploy` as part of an authorized deployment. They must not be used for `migrate dev`, including `--create-only`.
 
 If Prisma prompts you to create an extra migration after your intended migration has already been applied, stop and inspect the generated SQL before continuing. In this repo that usually means Prisma is trying to convert augment-managed partial indexes into normal diff output.
 

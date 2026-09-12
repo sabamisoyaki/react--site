@@ -11,8 +11,11 @@ permissions:
 
 jobs:
   ci:
-    name: Node 24 checks
-    runs-on: ubuntu-latest
+    name: Node 24 checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     timeout-minutes: 15
 
     env:
@@ -37,17 +40,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
-        run: npx prisma generate
+      - name: Quick validation
+        run: node scripts/codex-harness.mjs quick
 
-      - name: Lint
-        run: npx biome check .
-
-      - name: Type check
-        run: npx tsc --noEmit --incremental false
-
-      - name: Test
-        run: npm test
+      - name: Schema validation
+        run: node scripts/codex-harness.mjs schema
 
       - name: Build
         run: npm run build

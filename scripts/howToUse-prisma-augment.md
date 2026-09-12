@@ -14,10 +14,12 @@
 
 - Node.js 24.x（`package.json` の engines に準拠）
 - `npm install` 済み（`@prisma/internals`, `tsx` などが必要）
-- 直近のマイグレーションが存在すること
+- 専用の開発DBと使い捨て可能なシャドウDBで、今回の変更用に新規migrationを作成すること
   ```bash
   npx prisma migrate dev --create-only
   ```
+- 生成先が今回作った最新・未適用のmigrationであることを確認する。スクリプト自身はDBの適用状態を確認しない。
+- 共有・ステージング・本番DBでは `migrate dev` を実行しない。環境ごとの手順は [AGENTS.md](../AGENTS.md#database-workflow) を参照。
 - `.env` などで `DATABASE_URL` が読める状態  
   → クエリ文字列 `?schema=` があればそこを優先、無ければ `public` スキーマ扱いになります。
 
@@ -79,14 +81,16 @@ model Favorite {
 # 通常実行（最新 migration.sql を上書き）
 npx tsx scripts/prisma-augment.ts
 
-# ドライラン（差分の表示のみ）
+# 検証（ファイルを書き換えず、未生成SQLがあれば終了コード1）
 npx tsx scripts/prisma-augment.ts --check
-# または環境変数
+# 差分表示だけ行う場合（未生成SQLがあっても終了コード0）
 DRY_RUN=1 npx tsx scripts/prisma-augment.ts
 
 # デバッグログ
 DEBUG_AUGMENT=1 npx tsx scripts/prisma-augment.ts
 ```
+
+`--check` は未生成の追加・削除SQLを検出します。SQLの実行、DBとの照合、適用済みmigrationのチェックサム検証は行いません。削除された `@raw.sql` は警告のみで、自動DROPされないため、逆操作SQLを個別にレビューしてください。
 
 実行すると、`prisma/migrations/<最新>/migration.sql` に以下のようなブロックが追加・置換されます。
 
@@ -121,11 +125,13 @@ DROP INDEX IF EXISTS "favorite_unique_active";
 2. 必要に応じて `/// @@partialIndex`, `/// @@partialUnique`, `/// @raw.sql` コメントを追加
 3. マイグレーションの骨組みを作成  
    `npx prisma migrate dev --create-only --name add_clip_indices`
-4. `npx tsx scripts/prisma-augment.ts` を実行
+4. 今回作った最新migrationが未適用であることを確認し、`npx tsx scripts/prisma-augment.ts` を実行
 5. `prisma/migrations/<stamp>_<name>/migration.sql` を確認  
    - 自動生成部分は `GENERATED_*` ブロック
    - 手書きの SQL を混在させたい場合はブロック外に追記
-6. 問題なければテスト・レビュー・コミット
+6. `npm run codex:schema` で未生成SQLがないことを確認
+7. 専用の開発DBで `npx prisma migrate dev` を実行し、`npx prisma generate` でClientを再生成
+8. 必要な検証ゲート・レビューを完了してコミット。共有DB等への適用は別のデプロイ手順で行う
 
 ## 6. トラブルシュート
 

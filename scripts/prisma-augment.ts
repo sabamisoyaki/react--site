@@ -1,7 +1,7 @@
 // scripts/prisma-augment.ts
 // 宣言的 @@partialIndex / @@partialUnique と /// @raw.sql を解析し、
 // 生成SQLを「過去生成分との差分のみ」最新 migration.sql に追記（または置換）する。
-// - ドライラン: `--check` か環境変数 `DRY_RUN=1`
+// - 検証: `--check` は未生成 SQL があれば exit 1。`DRY_RUN=1` は表示のみ。
 // - 履歴重複排除: 過去の GENERATED_(EXTENSIONS|AUGMENT) ブロックから既出SQLを収集
 // - 同一 migration 内の DROP/ADD 衝突を自動回避
 //
@@ -15,7 +15,8 @@ import path from "node:path";
 import type { DMMF } from "@prisma/generator-helper";
 import { getDMMF } from "@prisma/internals";
 
-const DRY_RUN = process.argv.includes("--check") || process.env.DRY_RUN === "1";
+const CHECK = process.argv.includes("--check");
+const DRY_RUN = CHECK || process.env.DRY_RUN === "1";
 const DEBUG = process.env.DEBUG_AUGMENT === "1";
 
 const SCHEMA = path.resolve("prisma/schema.prisma");
@@ -726,12 +727,6 @@ async function main(): Promise<void> {
     ...extractDeclarativePartialUniques(schema, modelMap),
     ...extractRawSqlBlocks(schema),
   ];
-  if (blocks.length === 0) {
-    console.log(
-      "No @@partial(Index|Unique) or @raw.sql blocks found. Skipped.",
-    );
-    return;
-  }
 
   // 2) kind順に展開
   const expanded: SqlBlock[] = [];
@@ -745,10 +740,8 @@ async function main(): Promise<void> {
       }
     }
   }
-  if (expanded.length === 0) {
-    console.log("No SQL statements after expansion. Skipped.");
-    return;
-  }
+  // Even without current annotations, history may require DROP INDEX statements.
+  if (expanded.length === 0 && !fs.existsSync(MIGRATIONS_DIR)) return;
 
   // 3) 最新 migration.sql 読み込み & 同一ファイル内衝突回避
   const latestDir = pickLatestMigrationDir();
@@ -921,6 +914,13 @@ async function main(): Promise<void> {
     if (DRY_RUN) console.log(`[DRY-RUN] ${msg}`);
     else console.log(msg);
     return;
+  }
+
+  if (CHECK) {
+    console.error(
+      "prisma-augment: ungenerated SQL remains. Create and verify a new, unapplied migration before running augment without --check.",
+    );
+    process.exitCode = 1;
   }
 
   // 7) バンドル生成

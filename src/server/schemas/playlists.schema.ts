@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_QUERY_LENGTH } from "@/lib/search/utils";
+
 import {
   cursorPaginationQuerySchema,
   hardDeleteQuerySchema,
@@ -15,24 +17,24 @@ export const playlistListQuerySchema = paginationQuerySchema
   .extend(sortQuerySchema.shape)
   .extend({
     userId: idSchema.optional(),
-    name: z.string().optional(),
+    name: z.string().max(MAX_QUERY_LENGTH).optional(),
   });
 
 export const playlistCursorListQuerySchema = cursorPaginationQuerySchema
   .extend({
     userId: idSchema.optional(),
-    name: z.string().optional(),
+    name: z.string().max(MAX_QUERY_LENGTH).optional(),
   })
   .strict();
 
 export const playlistCreateBodySchema = z
-  .object({ name: z.string().max(255) })
+  .object({ name: z.string().trim().min(1).max(255) })
   .strict();
 
 export const playlistUpdateBodySchema = nonEmptyBody(
   z
     .object({
-      name: z.string().max(255).optional(),
+      name: z.string().trim().min(1).max(255).optional(),
     })
     .strict(),
 );
@@ -40,6 +42,16 @@ export const playlistUpdateBodySchema = nonEmptyBody(
 export const playlistIdParamSchema = z.object({ playlistId: idSchema });
 
 export const playlistClipBodySchema = z.object({ clipId: idSchema });
+const orderedClipIdsSchema = z
+  .array(idSchema)
+  .max(10000)
+  .refine((ids) => new Set(ids).size === ids.length, "Clip IDs must be unique");
+export const playlistReorderBodySchema = z
+  .object({
+    clipIds: orderedClipIdsSchema,
+    previousClipIds: orderedClipIdsSchema,
+  })
+  .strict();
 export const playlistVodBodySchema = z.object({ vodId: idSchema });
 
 export const playlistClipParamSchema = playlistIdParamSchema.extend({

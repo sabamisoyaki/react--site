@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/server/db";
 import {
@@ -9,6 +9,7 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from "@/server/http/errors";
+import { shareLockUsersByIdOrder } from "@/server/repositories/users";
 import type {
   ExtensionLinkBody,
   ExtensionSyncBody,
@@ -27,15 +28,28 @@ type LinkedExtensionRecord = {
   revokedAt: Date | null;
 };
 
+async function requireActiveExtensionUser(
+  userId: number | bigint,
+  tx: Prisma.TransactionClient,
+) {
+  // Acquire the user lock before any extension/clip writes, matching deleteUser.
+  // Authentication alone would leave a gap for a concurrent account deletion.
+  const [user] = await shareLockUsersByIdOrder([userId], tx);
+  if (!user || user.deletedAt !== null) throw new UnauthorizedError();
+}
+
 export async function issueExtensionLinkToken(userId: number) {
   const linkToken = generateOpaqueToken();
   const tokenHash = hashOpaqueToken(linkToken);
   const expiresAt = new Date(Date.now() + LINK_TOKEN_TTL_MS);
 
-  await prisma.$executeRaw`
-    INSERT INTO extension_link_tokens (user_id, token_hash, expires_at)
-    VALUES (${userId}, ${tokenHash}, ${expiresAt})
-  `;
+  await prisma.$transaction(async (tx) => {
+    await requireActiveExtensionUser(userId, tx);
+    await tx.$executeRaw`
+      INSERT INTO extension_link_tokens (user_id, token_hash, expires_at)
+      VALUES (${userId}, ${tokenHash}, ${expiresAt})
+    `;
+  });
 
   return { linkToken, expiresAt };
 }
@@ -67,6 +81,7 @@ export async function consumeLinkTokenAndLinkExtension(
 
     const tokenRecord = records[0];
     if (!tokenRecord) throw new UnauthorizedError("Invalid link token");
+    await requireActiveExtensionUser(tokenRecord.userId, tx);
     if (tokenRecord.usedAt) throw new ConflictError("Link token already used");
     if (tokenRecord.expiresAt.getTime() <= now.getTime()) {
       throw new BadRequestError("Link token expired", "LINK_TOKEN_EXPIRED");
@@ -136,17 +151,21 @@ export async function rotateExtensionAuthToken(
 
   // 旧ハッシュ一致を条件にした CAS 更新。並行リフレッシュは片方だけ成功し、
   // 負けた側(0行更新)は 401 で拡張側の再連携導線に落とす。
-  const rotated = await prisma.$queryRaw<Array<{ id: number }>>`
+  const rotated = await prisma.$transaction(async (tx) => {
+    await requireActiveExtensionUser(linkedExtension.userId, tx);
+    return tx.$queryRaw<Array<{ id: number }>>`
     UPDATE linked_extensions
     SET
       extension_auth_hash = ${extensionAuthHash},
       expires_at = ${expiresAt},
-      last_seen_at = ${now}
+      last_seen_at = GREATEST(last_seen_at, ${now})
     WHERE id = ${linkedExtension.id}
       AND extension_auth_hash = ${linkedExtension.extensionAuthHash}
       AND revoked_at IS NULL
+      AND expires_at > ${now}
     RETURNING id
   `;
+  });
 
   if (rotated.length !== 1) {
     throw new UnauthorizedError("Unauthorized");
@@ -165,8 +184,6 @@ export async function syncExtensionItems(
     extensionAuthToken,
   );
 
-  const acceptedItemIds: string[] = [];
-  const now = new Date();
   const clipInputs = await Promise.all(
     body.items.map(async (item) => ({
       clientItemId: item.clientItemId,
@@ -175,8 +192,14 @@ export async function syncExtensionItems(
       data: await buildLegacyClipCreateData(item.payload),
     })),
   );
+  // Overlapping batches must acquire receipt locks in the same order, even if
+  // clients send the items in reverse order (otherwise ON CONFLICT can deadlock).
+  clipInputs.sort((a, b) =>
+    a.clientItemId.toLowerCase().localeCompare(b.clientItemId.toLowerCase()),
+  );
 
   await prisma.$transaction(async (tx) => {
+    await requireActiveExtensionUser(linkedExtension.userId, tx);
     const existingReceipts =
       clipInputs.length === 0
         ? []
@@ -193,25 +216,20 @@ export async function syncExtensionItems(
 
     for (const item of clipInputs) {
       if (receiptIds.has(item.clientItemId)) {
-        acceptedItemIds.push(item.clientItemId);
         continue;
       }
 
-      try {
-        await tx.$executeRaw`
-          INSERT INTO sync_receipts (linked_extension_id, client_item_id, item_type)
-          VALUES (${linkedExtension.id}, ${item.clientItemId}::uuid, ${item.type})
-        `;
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === "P2002"
-        ) {
-          acceptedItemIds.push(item.clientItemId);
-          continue;
-        }
-
-        throw error;
+      // Another request may have inserted this receipt since the initial read.
+      // A constraint exception aborts PostgreSQL's transaction even if caught.
+      const inserted = await tx.$queryRaw<Array<{ clientItemId: string }>>`
+        INSERT INTO sync_receipts (linked_extension_id, client_item_id, item_type)
+        VALUES (${linkedExtension.id}, ${item.clientItemId}::uuid, ${item.type})
+        ON CONFLICT (linked_extension_id, client_item_id) DO NOTHING
+        RETURNING client_item_id AS "clientItemId"
+      `;
+      receiptIds.add(item.clientItemId);
+      if (inserted.length === 0) {
+        continue;
       }
 
       await tx.clip.create({
@@ -221,18 +239,24 @@ export async function syncExtensionItems(
           ...(item.createdAt ? { createdAt: item.createdAt } : {}),
         },
       });
-      receiptIds.add(item.clientItemId);
-      acceptedItemIds.push(item.clientItemId);
     }
 
-    await tx.$executeRaw`
+    const activityAt = new Date();
+    const updated = await tx.$queryRaw<Array<{ id: bigint }>>`
       UPDATE linked_extensions
-      SET last_seen_at = ${now}
+      SET last_seen_at = GREATEST(last_seen_at, ${activityAt})
       WHERE id = ${linkedExtension.id}
+        AND extension_auth_hash = ${linkedExtension.extensionAuthHash}
+        AND revoked_at IS NULL
+        AND expires_at > ${activityAt}
+      RETURNING id
     `;
+    if (updated.length !== 1) throw new UnauthorizedError("Unauthorized");
   });
 
-  return { acceptedItemIds };
+  // Preserve the caller's order in the acknowledgement. All items are accepted
+  // only once the transaction commits; any failure rolls back the whole batch.
+  return { acceptedItemIds: body.items.map((item) => item.clientItemId) };
 }
 
 export type LinkedExtensionSummary = {
@@ -305,7 +329,7 @@ export function parseBearerToken(authorizationHeader: string | null) {
   return match?.[1]?.trim() || null;
 }
 
-async function authenticateLinkedExtension(
+export async function authenticateLinkedExtension(
   extensionInstanceId: string,
   extensionAuthToken: string,
 ) {
@@ -314,15 +338,16 @@ async function authenticateLinkedExtension(
   // 拾って認証が不安定になる。
   const records = await prisma.$queryRaw<Array<LinkedExtensionRecord>>`
     SELECT
-      id,
-      user_id AS "userId",
-      extension_instance_id AS "extensionInstanceId",
-      extension_auth_hash AS "extensionAuthHash",
-      expires_at AS "expiresAt",
-      revoked_at AS "revokedAt"
-    FROM linked_extensions
-    WHERE extension_instance_id = ${extensionInstanceId}::uuid
-      AND revoked_at IS NULL
+      le.id,
+      le.user_id AS "userId",
+      le.extension_instance_id AS "extensionInstanceId",
+      le.extension_auth_hash AS "extensionAuthHash",
+      le.expires_at AS "expiresAt",
+      le.revoked_at AS "revokedAt"
+    FROM linked_extensions le
+    JOIN users u ON u.id = le.user_id AND u.deleted_at IS NULL
+    WHERE le.extension_instance_id = ${extensionInstanceId}::uuid
+      AND le.revoked_at IS NULL
     LIMIT 1
   `;
 

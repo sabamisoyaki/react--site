@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { assertSameOriginWrite } from "@/server/http/csrf";
 import { toErrorPayload } from "@/server/http/errors";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;
@@ -113,6 +114,7 @@ export function createApiHandler<
     }
 
     try {
+      assertSameOriginWrite(req);
       return await fn(req, context);
     } catch (error) {
       const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();

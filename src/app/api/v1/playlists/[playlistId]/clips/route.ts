@@ -5,6 +5,7 @@ import {
   buildCursorPaginationMeta,
   parseCursorPagination,
 } from "@/server/http/pagination";
+import { decodePlaylistClipCursor } from "@/server/http/playlist-pagination";
 import {
   parseJsonBody,
   parseRouteParams,
@@ -14,13 +15,27 @@ import {
   playlistChildrenCursorQuerySchema,
   playlistClipBodySchema,
   playlistIdParamSchema,
+  playlistReorderBodySchema,
 } from "@/server/schemas/playlists.schema";
 import {
   addClipToPlaylist,
   listPlaylistClipsCursor,
+  reorderPlaylistClips,
 } from "@/server/services/playlists";
 
-export const { GET, POST } = createRouteHandlers({
+export const { GET, POST, PATCH } = createRouteHandlers({
+  PATCH: async (req, context) => {
+    const userId = await requireUserId();
+    const params = parseRouteParams(context.params, playlistIdParamSchema);
+    const body = await parseJsonBody(req, playlistReorderBodySchema);
+    await reorderPlaylistClips(
+      userId,
+      params.playlistId,
+      body.clipIds,
+      body.previousClipIds,
+    );
+    return new Response(null, { status: 204 });
+  },
   GET: async (req, context) => {
     const params = parseRouteParams(context.params, playlistIdParamSchema);
     const query = parseSearchParams(
@@ -31,7 +46,7 @@ export const { GET, POST } = createRouteHandlers({
     const { data, hasNext, nextCursor } = await listPlaylistClipsCursor(
       params.playlistId,
       {
-        cursor: pagination.cursor,
+        cursor: decodePlaylistClipCursor(query.cursor),
         limit: pagination.limit,
       },
     );

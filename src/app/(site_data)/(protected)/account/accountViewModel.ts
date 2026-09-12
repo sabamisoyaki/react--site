@@ -9,6 +9,9 @@ export function formatDateJa(value: Date): string {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    // timeZone を省略すると実行ホストの TZ に従うため、
+    // 表示日が閲覧者の端末（および CI ランナー）で変わってしまう。
+    timeZone: "Asia/Tokyo",
   }).format(value);
 }
 

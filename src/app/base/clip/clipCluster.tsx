@@ -192,6 +192,7 @@ export default function ClipList({ clipApiUrl, userId, emptyMessage }) {
             starttime={item.startTime}
             endtime={item.endTime}
             userId={userId}
+            ownerId={item.ownerId}
             Id={item.id}
           />
         ))}
@@ -233,6 +234,9 @@ function normalizeClipItems(json) {
     epnumber: item.epnumber ?? item.epnum,
     url: item.url,
     user: item.user?.name ?? item.userName ?? "ユーザー不明",
+    // コメントのモデレーション権限（クリップ所有者は自分のクリップの
+    // コメントを消せる）の判定に使う
+    ownerId: item.userId != null ? Number(item.userId) : null,
     service: item.service ?? item.vod?.code ?? "unknown",
     startTime:
       item.startTime ??

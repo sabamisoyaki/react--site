@@ -1,3 +1,6 @@
+import type { Prisma } from "@prisma/client";
+import { parseKeywords, rankByKeywords } from "@/lib/search/utils";
+import { prisma } from "@/server/db";
 import {
   ConflictError,
   ForbiddenError,
@@ -5,14 +8,66 @@ import {
 } from "@/server/http/errors";
 import * as repo from "@/server/repositories/playlists";
 
-export function listPlaylists(opts: Parameters<typeof repo.list>[0]) {
-  return repo.list(opts);
+function withOwnedPlaylist<T>(
+  currentUserId: number,
+  playlistId: number,
+  operation: (db: Prisma.TransactionClient) => Promise<T>,
+) {
+  return prisma.$transaction(async (db) => {
+    const playlist = await repo.lockActivePlaylist(playlistId, db);
+    if (!playlist) throw new NotFoundError("Playlist not found");
+    if (playlist.userId !== BigInt(currentUserId)) throw new ForbiddenError();
+    return operation(db);
+  });
 }
 
-export function listPlaylistsCursor(
+export function reorderPlaylistClips(
+  currentUserId: number,
+  playlistId: number,
+  clipIds: number[],
+  previousClipIds: number[],
+) {
+  return withOwnedPlaylist(currentUserId, playlistId, async (db) => {
+    const current = await repo.listOrderedActiveClipIds(playlistId, db);
+    const ids = current.map((row) => Number(row.clipId));
+    const requested = new Set(clipIds);
+    if (
+      requested.size !== clipIds.length ||
+      ids.length !== clipIds.length ||
+      previousClipIds.length !== ids.length ||
+      ids.some(
+        (id, index) => !requested.has(id) || previousClipIds[index] !== id,
+      )
+    ) {
+      throw new ConflictError(
+        "Playlist changed; refresh before reordering",
+        "PLAYLIST_ORDER_CONFLICT",
+      );
+    }
+    await repo.reorderClips(playlistId, clipIds, db);
+  });
+}
+
+export async function listPlaylists(opts: Parameters<typeof repo.list>[0]) {
+  const result = await repo.list(opts);
+  const keywords = parseKeywords(opts?.name ?? "");
+  return {
+    ...result,
+    data: rankByKeywords(result.data, keywords, (playlist) => [playlist.name]),
+  };
+}
+
+export async function listPlaylistsCursor(
   opts?: Parameters<typeof repo.listCursor>[0],
 ) {
-  return repo.listCursor(opts);
+  const result = await repo.listCursor(opts);
+  // nextCursor はリポジトリが並べ替え前の順序から作っている。
+  // ここでの並べ替えはページ内で閉じているのでカーソルには影響しない。
+  const keywords = parseKeywords(opts?.name ?? "");
+  return {
+    ...result,
+    data: rankByKeywords(result.data, keywords, (playlist) => [playlist.name]),
+  };
 }
 
 export async function getPlaylist(id: number) {
@@ -63,12 +118,10 @@ export async function addClipToPlaylist(
   playlistId: number,
   clipId: number,
 ) {
-  const playlist = await getPlaylist(playlistId);
-  if (String(playlist.userId) !== String(currentUserId)) {
-    throw new ForbiddenError();
-  }
-  const result = await repo.addClipIfActive(playlistId, clipId);
-  if (!result.active_exists) throw new NotFoundError("Clip not found");
+  return withOwnedPlaylist(currentUserId, playlistId, async (db) => {
+    const result = await repo.addClipIfActive(playlistId, clipId, db);
+    if (!result.active_exists) throw new NotFoundError("Clip not found");
+  });
 }
 
 export async function removeClipFromPlaylist(
@@ -76,11 +129,9 @@ export async function removeClipFromPlaylist(
   playlistId: number,
   clipId: number,
 ) {
-  const playlist = await getPlaylist(playlistId);
-  if (String(playlist.userId) !== String(currentUserId)) {
-    throw new ForbiddenError();
-  }
-  return repo.removeClip(playlistId, clipId);
+  return withOwnedPlaylist(currentUserId, playlistId, (db) =>
+    repo.removeClip(playlistId, clipId, db),
+  );
 }
 
 export function listPlaylistClips(
@@ -109,7 +160,6 @@ export async function addVodToPlaylist(
   }
   const result = await repo.addVodIfActive(playlistId, vodId);
   if (!result.active_exists) throw new NotFoundError("VOD not found");
-  if (!result.inserted) throw new ConflictError("VOD already attached");
 }
 
 export async function removeVodFromPlaylist(

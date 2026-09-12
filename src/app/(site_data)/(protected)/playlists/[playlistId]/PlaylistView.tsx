@@ -14,7 +14,11 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { clearPlaybackClipId } from "@/lib/clips/playback";
+import { createHandoffRequestId } from "@/lib/extension/handoffRequest";
+import { savePlaylistOrder } from "@/lib/playlists/client";
 import SortableClipItem from "./SortableClipItem";
 
 interface Clip {
@@ -22,6 +26,7 @@ interface Clip {
   title: string;
   clipName: string;
   user: string;
+  ownerId: number;
   service: string;
   startTime: number;
   endTime: number;
@@ -47,24 +52,53 @@ interface PlaylistViewProps {
   userId: string | null;
 }
 export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [orderError, setOrderError] = useState("");
   const isOwner = userId === playlist.userId;
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const [items, setItems] = useState(() => playlist.clips);
+  const handleClipRemoved = useCallback((clipId: number) => {
+    // refresh() is asynchronous; subsequent drags must already omit this ID.
+    setItems((current) => current.filter((item) => item.id !== clipId));
+  }, []);
+  useEffect(() => {
+    if (!savingRef.current) setItems(playlist.clips);
+  }, [playlist.clips]);
 
   const sensors = useSensors(useSensor(PointerSensor));
 
   async function handleDragEnd(event: DragEndEvent) {
-    if (!isOwner) return;
+    if (!isOwner || savingRef.current) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
     const oldIndex = items.findIndex((i) => i.id === active.id);
     const newIndex = items.findIndex((i) => i.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
 
     const newOrder = arrayMove(items, oldIndex, newIndex);
     setItems(newOrder);
+    savingRef.current = true;
+    setSaving(true);
+    setOrderError("");
+    try {
+      await savePlaylistOrder(
+        playlist.id,
+        newOrder.map((item) => item.id),
+        items.map((item) => item.id),
+      );
+    } catch (error) {
+      setItems(items);
+      setOrderError((error as Error).message);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+      router.refresh();
+    }
   }
 
   const itemIds = useMemo(() => items.map((i) => i.id), [items]);
@@ -91,9 +125,13 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
       <div className="mb-5 flex items-center gap-3.5">
         <button
           type="button"
+          disabled={saving}
           onClick={() => {
-            const clips = items.map((pc) => ({
+            // id / order / 配列順が拡張との契約。order は 0 始まりの配列
+            // インデックスで、拡張はこれで再生中クリップを解決する。
+            const clips = items.map((pc, index) => ({
               id: pc.clip.id,
+              order: index,
               clipname: pc.clip.clipName,
               title: pc.clip.title,
               service: pc.clip.service,
@@ -103,8 +141,18 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
               endTime: pc.clip.endTime,
             }));
 
+            // 直前の単体再生で残った clipId cookie を消してから開始する。
+            // 残すと拡張がプレイリストと無関係なクリップを現在クリップと
+            // 解決しうる（cookie の寿命は 1 時間）。
+            clearPlaybackClipId();
             localStorage.setItem("playQueue", JSON.stringify(clips));
-            window.postMessage({ type: "PLAY_PLAYLIST_START" });
+            window.postMessage(
+              {
+                type: "PLAY_PLAYLIST_START",
+                requestId: createHandoffRequestId(),
+              },
+              window.location.origin,
+            );
           }}
           className="cursor-pointer rounded-full bg-accent px-5 py-2 text-[13.5px] font-extrabold text-white shadow-sticker-ink hover:bg-accent-strong"
         >
@@ -114,6 +162,17 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
           {items.length} 件のクリップ
         </span>
       </div>
+
+      {saving && (
+        <output className="mb-4 block text-[13px] text-ink-muted">
+          並べ替えを保存中…
+        </output>
+      )}
+      {orderError && (
+        <p role="alert" className="mb-4 text-[13px] text-accent">
+          {orderError}
+        </p>
+      )}
 
       <div className="flex flex-col gap-5">
         <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
@@ -125,6 +184,8 @@ export default function PlaylistView({ playlist, userId }: PlaylistViewProps) {
               clip={pc.clip}
               userId={userId}
               isOwner={isOwner}
+              disabled={saving}
+              onRemoved={handleClipRemoved}
             />
           ))}
         </SortableContext>

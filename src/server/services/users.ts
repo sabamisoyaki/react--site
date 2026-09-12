@@ -1,8 +1,10 @@
+import { prisma } from "@/server/db";
 import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
 } from "@/server/http/errors";
+import { resolveClipCommentReportsForClips } from "@/server/repositories/comments";
 import * as repo from "@/server/repositories/users";
 
 export function listUsers(opts: Parameters<typeof repo.list>[0]) {
@@ -32,9 +34,31 @@ export function updateUser(
   return repo.update(id, data);
 }
 
-export function deleteUser(currentUserId: number, id: number, hard = false) {
+export async function deleteUser(
+  currentUserId: number,
+  id: number,
+  hard = false,
+) {
   if (currentUserId !== id) throw new ForbiddenError();
-  return hard ? repo.hardDelete(id) : repo.softDelete(id);
+
+  return prisma.$transaction(async (tx) => {
+    const [user] = await repo.lockUsersByIdOrder([id], tx);
+    if (!user || (!hard && user.deletedAt !== null)) {
+      throw new NotFoundError("User not found");
+    }
+
+    const ownedClips = await repo.lockOwnedClipsByIdOrder(id, tx);
+    if (hard) return repo.hardDelete(id, tx);
+
+    await resolveClipCommentReportsForClips(
+      ownedClips.map((clip) => clip.id),
+      currentUserId,
+      "owner_deleted",
+      tx,
+    );
+    await repo.revokeUserExtensions(id, tx);
+    return repo.softDelete(id, tx);
+  });
 }
 
 export function listUserVods(

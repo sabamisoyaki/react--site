@@ -4,6 +4,8 @@ import process from "node:process";
 
 const ROOT_ENV_FILE = ".env.local";
 const REQUIRED_DB_KEYS = ["DATABASE_URL"];
+const WINDOWS_CMD_SHIMS = new Set(["npm", "npx"]);
+const SAFE_CMD_TOKEN = /^[A-Za-z0-9_./:@+-]+$/;
 
 function parseEnvFile(filePath) {
   const env = {};
@@ -32,7 +34,19 @@ function logStep(label) {
 function run(command, args, options = {}) {
   const printable = [command, ...args].join(" ");
   console.log(`[codex] > ${printable}`);
-  execFileSync(command, args, {
+  let executable = command;
+  let executableArgs = args;
+
+  if (process.platform === "win32" && WINDOWS_CMD_SHIMS.has(command)) {
+    const commandTokens = [`${command}.cmd`, ...args];
+    if (!commandTokens.every((token) => SAFE_CMD_TOKEN.test(token))) {
+      throw new Error(`Unsafe Windows command token: ${printable}`);
+    }
+    executable = process.env.ComSpec ?? "cmd.exe";
+    executableArgs = ["/d", "/s", "/c", commandTokens.join(" ")];
+  }
+
+  execFileSync(executable, executableArgs, {
     stdio: "inherit",
     env: options.env ?? process.env,
     cwd: options.cwd ?? process.cwd(),

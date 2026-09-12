@@ -91,11 +91,12 @@ async function linkExtension(extensionInstanceId: string, linkToken: string) {
   return body as { ok: true; extensionAuthToken: string; expiresAt: string };
 }
 
-export async function linkExtensionToCurrentUser(
-  knownExtensionInstanceId?: string,
-) {
-  const extensionInstanceId =
-    knownExtensionInstanceId ?? (await getExtensionInstanceIdFromExtension());
+/**
+ * This must stay behind a direct user action. A revoked link is durable server
+ * state; issuing a new link token during page mount would silently undo unlink.
+ */
+export async function linkExtensionToCurrentUserFromUserAction() {
+  const extensionInstanceId = await getExtensionInstanceIdFromExtension();
   const { linkToken } = await requestLinkToken();
   const result = await linkExtension(extensionInstanceId, linkToken);
 
@@ -106,4 +107,46 @@ export async function linkExtensionToCurrentUser(
   );
 
   return { ...result, extensionInstanceId };
+}
+
+export async function unlinkExtensionFromCurrentUser(
+  linkedExtensionId: number,
+  expectedExtensionInstanceId: string,
+) {
+  const res = await fetch("/api/extension/unlink", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ linkedExtensionId }),
+  });
+
+  const body = (await res.json()) as {
+    extensionInstanceId?: unknown;
+    message?: unknown;
+  };
+  if (!res.ok) {
+    throw new Error(
+      typeof body.message === "string"
+        ? body.message
+        : "Failed to unlink extension",
+    );
+  }
+
+  const extensionInstanceId =
+    typeof body.extensionInstanceId === "string"
+      ? body.extensionInstanceId
+      : expectedExtensionInstanceId;
+
+  // The extension only clears its local token when this instance id matches.
+  // Unlinking a different browser therefore cannot log out the current one.
+  window.postMessage(
+    {
+      type: "EXTENSION_UNLINKED",
+      requestId: createRequestId(),
+      extensionInstanceId,
+    },
+    window.location.origin,
+  );
+
+  return { extensionInstanceId };
 }

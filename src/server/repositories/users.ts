@@ -6,6 +6,64 @@ export function findById(id: number) {
   return prisma.user.findUnique({ where: { id } });
 }
 
+export type UserLockRow = { id: bigint; deletedAt: Date | null };
+
+export async function lockUsersByIdOrder(
+  userIds: readonly (number | bigint)[],
+  db: Prisma.TransactionClient,
+) {
+  const uniqueUserIds = [...new Set(userIds.map((id) => BigInt(id)))];
+  if (uniqueUserIds.length === 0) return [];
+
+  return db.$queryRaw<UserLockRow[]>`
+    SELECT
+      id,
+      deleted_at AS "deletedAt"
+    FROM users
+    WHERE id = ANY(${uniqueUserIds}::bigint[])
+    ORDER BY id ASC
+    FOR UPDATE
+  `;
+}
+
+/**
+ * 退会の有無だけを見るための共有ロック。
+ *
+ * FOR SHARE は退会処理の UPDATE（FOR NO KEY UPDATE を取る）とは競合するため、
+ * 「処理中に対象ユーザーが退会する」競合は FOR UPDATE と同じように防げる。
+ * 一方 FOR SHARE 同士は競合しないので、同じ行を見るだけの処理が互いに待たない。
+ */
+export async function shareLockUsersByIdOrder(
+  userIds: readonly (number | bigint)[],
+  db: Prisma.TransactionClient,
+) {
+  const uniqueUserIds = [...new Set(userIds.map((id) => BigInt(id)))];
+  if (uniqueUserIds.length === 0) return [];
+
+  return db.$queryRaw<UserLockRow[]>`
+    SELECT
+      id,
+      deleted_at AS "deletedAt"
+    FROM users
+    WHERE id = ANY(${uniqueUserIds}::bigint[])
+    ORDER BY id ASC
+    FOR SHARE
+  `;
+}
+
+export async function lockOwnedClipsByIdOrder(
+  userId: number,
+  db: Prisma.TransactionClient,
+) {
+  return db.$queryRaw<Array<{ id: bigint }>>`
+    SELECT id
+    FROM clips
+    WHERE user_id = ${BigInt(userId)}
+    ORDER BY id ASC
+    FOR UPDATE
+  `;
+}
+
 export async function list(
   opts: {
     skip?: number;
@@ -47,12 +105,27 @@ export function update(
   return prisma.user.update({ where: { id }, data });
 }
 
-export function softDelete(id: number) {
-  return prisma.user.update({ where: { id }, data: { deletedAt: new Date() } });
+export function softDelete(id: number, db: Prisma.TransactionClient = prisma) {
+  return db.user.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
-export function hardDelete(id: number) {
-  return prisma.user.delete({ where: { id } });
+export function hardDelete(id: number, db: Prisma.TransactionClient = prisma) {
+  return db.user.delete({ where: { id } });
+}
+
+export async function revokeUserExtensions(
+  id: number,
+  db: Prisma.TransactionClient,
+) {
+  const revokedAt = new Date();
+  await db.$executeRaw`
+    UPDATE linked_extensions SET revoked_at = ${revokedAt}
+    WHERE user_id = ${id} AND revoked_at IS NULL
+  `;
+  await db.$executeRaw`
+    UPDATE extension_link_tokens SET used_at = ${revokedAt}
+    WHERE user_id = ${id} AND used_at IS NULL
+  `;
 }
 
 export async function listUserVods(

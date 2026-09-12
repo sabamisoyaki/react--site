@@ -1,6 +1,7 @@
 import "./globals.css";
 import type React from "react";
 import TopNav from "@/app/base/_components/headSearch/headSearch";
+import { ExtensionPlaybackHandoffStatus } from "@/components/ExtensionPlaybackHandoffStatus";
 import ShelfRail from "@/components/ShelfRail";
 import { SessionProvider } from "@/providers/session-provider";
 import { getSession } from "@/server/auth/session";
@@ -24,6 +25,7 @@ export default async function RootLayout({
       <body>
         {/* ここでセッションを初期値として渡す */}
         <SessionProvider session={session}>
+          <ExtensionPlaybackHandoffStatus />
           <TopNav />
           <div className="mx-auto flex w-full max-w-6xl items-start gap-7 px-4 pt-7 pb-16 md:px-8">
             <ShelfRail />

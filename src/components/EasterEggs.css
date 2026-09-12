@@ -1,0 +1,322 @@
+/* =========================================================
+   🥚 イースターエッグ用スタイル
+   - コナミコマンド      → フィルム吹雪 + VHS/CRT モード
+   - ロゴ 7 連打         → スタッフロール
+   カラーは globals.css の @theme トークン(--color-ink 等)を流用。
+   ========================================================= */
+
+/* ---- 吹雪レイヤ ------------------------------------------ */
+.egg-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 9995;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.egg-confetti {
+  position: absolute;
+  top: -8vh;
+  line-height: 1;
+  will-change: transform, opacity;
+  animation: egg-fall linear forwards;
+}
+
+@keyframes egg-fall {
+  0% {
+    transform: translateY(-10vh) rotate(0deg);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(112vh) rotate(var(--egg-spin, 360deg));
+    opacity: 1;
+  }
+}
+
+/* ---- VHS / CRT オーバーレイ ------------------------------ */
+.egg-vhs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  pointer-events: none;
+  /* 背景の映像をビデオっぽく色調補正 */
+  -webkit-backdrop-filter: saturate(1.4) contrast(1.06) brightness(1.03);
+  backdrop-filter: saturate(1.4) contrast(1.06) brightness(1.03);
+  /* 走査線 + 周辺減光(ビネット) */
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.16) 0px,
+      rgba(0, 0, 0, 0.16) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    radial-gradient(
+      ellipse at center,
+      transparent 55%,
+      rgba(0, 0, 0, 0.32) 100%
+    );
+  animation: egg-vhs-flicker 5.5s steps(30) infinite;
+}
+
+/* 明滅 & トラッキングノイズ的なちらつき */
+@keyframes egg-vhs-flicker {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 1;
+  }
+  73% {
+    opacity: 0.86;
+  }
+  74% {
+    opacity: 1;
+  }
+}
+
+/* 上から下へ流れるトラッキングバー */
+.egg-vhs-overlay::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: 14vh;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(255, 255, 255, 0.06) 45%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.06) 55%,
+    transparent
+  );
+  animation: egg-vhs-track 7s linear infinite;
+}
+
+@keyframes egg-vhs-track {
+  0% {
+    transform: translateY(-20vh);
+  }
+  100% {
+    transform: translateY(120vh);
+  }
+}
+
+/* フィルムグレイン(SVG feTurbulence を data-URI で埋め込み・完全自己完結) */
+.egg-vhs-overlay::after {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  animation: egg-grain 0.6s steps(4) infinite;
+}
+
+@keyframes egg-grain {
+  0% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-3%, 2%);
+  }
+  50% {
+    transform: translate(2%, -3%);
+  }
+  75% {
+    transform: translate(-2%, -2%);
+  }
+  100% {
+    transform: translate(3%, 3%);
+  }
+}
+
+/* カムコーダー風 REC / タイムコード / 再生モード表示 */
+.egg-vhs-hud {
+  position: absolute;
+  color: #fff;
+  font-family: var(--font-data);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+}
+.egg-vhs-hud--rec {
+  top: 18px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.egg-vhs-hud--tc {
+  bottom: 18px;
+  right: 20px;
+}
+.egg-vhs-hud--mode {
+  top: 18px;
+  left: 20px;
+}
+.egg-vhs-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ff2d2d;
+  box-shadow: 0 0 8px #ff2d2d;
+  animation: egg-blink 1s steps(1) infinite;
+}
+@keyframes egg-blink {
+  50% {
+    opacity: 0.15;
+  }
+}
+
+/* ---- トースト(ステッカー風) ----------------------------- */
+.egg-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  z-index: 10000;
+  pointer-events: none;
+  padding: 11px 20px;
+  border: 2px solid var(--color-ink);
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sticker-ink);
+  animation: egg-toast-in 0.32s cubic-bezier(0.18, 0.9, 0.32, 1.4) both;
+}
+@keyframes egg-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(14px) scale(0.9);
+  }
+}
+
+/* ---- スタッフロール ------------------------------------- */
+.egg-credits {
+  position: fixed;
+  inset: 0;
+  z-index: 10010;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  background: radial-gradient(ellipse at center, #14131a 0%, #050507 100%);
+  animation: egg-credits-fade 0.5s ease both;
+}
+@keyframes egg-credits-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* 画面全体を覆う不可視の閉じるボタン（どこをクリックしても閉じる） */
+.egg-credits-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.egg-credits-scroll {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  width: min(520px, 88vw);
+  padding: 0 16px;
+  text-align: center;
+  color: #f4f1e8;
+  /* テキスト上のクリックも背面の閉じるボタンへ通す */
+  pointer-events: none;
+  animation: egg-credits-roll 17s linear forwards;
+}
+@keyframes egg-credits-roll {
+  from {
+    transform: translateY(100vh);
+  }
+  to {
+    transform: translateY(-118%);
+  }
+}
+
+.egg-credits-title {
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+.egg-credits-sub {
+  margin-top: 8px;
+  margin-bottom: 46px;
+  font-family: var(--font-data);
+  font-size: 13px;
+  letter-spacing: 0.5em;
+  color: var(--color-marker);
+}
+.egg-credits-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 30px;
+}
+.egg-credits-role {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: #a9a6b4;
+}
+.egg-credits-name {
+  font-size: 18px;
+  font-weight: 800;
+}
+.egg-credits-fin {
+  margin-top: 34px;
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  color: var(--color-marker);
+}
+
+.egg-credits-skip {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  padding: 7px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.egg-credits-skip:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* ---- モーション控えめ設定を尊重 ------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .egg-vhs-overlay,
+  .egg-vhs-overlay::before,
+  .egg-vhs-overlay::after,
+  .egg-vhs-dot,
+  .egg-toast {
+    animation: none;
+  }
+  /* 吹雪は EasterEggs.tsx 側で生成自体を止めている。
+     これは万一描画された場合の保険（animation: none だと画面外に居座るだけなので消す）。 */
+  .egg-confetti {
+    display: none;
+  }
+  .egg-credits-scroll {
+    animation-duration: 26s;
+  }
+}

@@ -213,7 +213,11 @@ export default function TopNav() {
   return (
     <header className="sticky top-0 z-40 border-ink border-b-2 bg-white">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 md:px-8">
-        <Link href="/" className="shrink-0 text-[17px] font-black">
+        <Link
+          href="/"
+          data-egg-logo
+          className="shrink-0 text-[17px] font-black"
+        >
           サブスク<span className="marker">切り抜き</span>
         </Link>
         <NavLinks />

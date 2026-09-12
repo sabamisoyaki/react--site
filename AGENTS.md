@@ -12,7 +12,12 @@
 - Read existing route, schema, and service patterns before changing behavior.
 - Keep changes scoped to the requested issue. Do not refactor unrelated areas unless required to finish safely.
 - Never log secrets or copy values from `.env.local`.
-- Do not perform destructive database operations unless the user explicitly asked for them.
+- Destructive database operations — `DROP`, `TRUNCATE`, an unscoped `DELETE` or `UPDATE`, a
+  migration reset — follow the same four steps as destructive git below: permission, inventory,
+  recovery point, report. One difference matters enough to state: PostgreSQL has no reflog. A
+  dropped table is gone unless a dump was taken first, so the recovery point has to be a dump or
+  an explicit statement from the user that the data is disposable — never an assumption that it
+  probably is.
 
 ## Git
 
@@ -33,8 +38,9 @@ command is judged by which group its effect puts it in.
   having pushed this branch earlier, or having been told "go ahead" on the previous step, is not
   authorization for the next one. Say what will become visible to whom before asking.
 - **Destructive — explicit permission, and only once a way back exists.** `git reset --hard`,
-  `git push --force`, `git rebase`, `git clean`, `git rm`, branch or tag deletion, and anything
-  that rewrites history. Do not reach for one as a shortcut past a problem; there is almost always
+  `git push --force`, `git rebase`, `git clean`, `git rm`, `git restore`,
+  `git checkout -- <path>`, `git stash drop` / `git stash clear`, branch or tag deletion, and
+  anything that rewrites history. Do not reach for one as a shortcut past a problem; there is almost always
   a non-destructive route, and that route is the default. When one is genuinely required, work
   through this order and do not compress it:
 
@@ -44,7 +50,9 @@ command is judged by which group its effect puts it in.
      commits (`git log --oneline`), the uncommitted changes (`git status`), the files. Never
      describe the blast radius from assumption; look first.
   3. **Recovery point.** Leave a way back before touching anything: tag or branch the current HEAD
-     (`git branch backup/<what> HEAD`), or stash. Write down the SHA.
+     (`git branch backup/<what> HEAD`), and write down the SHA. Note what this does not cover —
+     branching HEAD saves committed work only. Uncommitted changes live in no ref and are not in
+     the reflog, so discarding them needs a stash or a copy of the files, made first.
   4. **Run it, then report.** State what was destroyed and name the recovery point, so the user can
      undo it without asking how.
 
@@ -148,6 +156,7 @@ none of it, and neither does a fresh agent session on another machine.
 
 - For implementation tasks, finish with the exact commands you ran and whether they passed.
 - After committing, report the branch and the short SHA. When a push, PR creation, or merge is the
-  next step, state the exact command rather than running it.
+  next step, say what it will make visible and to whom, and run it only once the user says to —
+  the outward-facing rule in the Git section, restated here so the two do not drift apart.
 - For review tasks, lead with concrete findings, file references, and missing tests.
 - If a task is blocked by DB connectivity, state whether `codex:quick` and `codex:schema` still pass.

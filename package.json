@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "db:seed": "tsx prisma/seed.ts",
-    "test": "npm run test:account && npm run test:search && npm run test:clips && npm run test:db",
+    "test": "node --test \"tests/**/*.test.mjs\"",
     "test:account": "node --test \"tests/account/accountViewModel.test.mjs\"",
     "test:search": "node --test \"tests/search/utils.test.mjs\"",
     "test:clips": "node --test \"tests/clips/playback.test.mjs\"",

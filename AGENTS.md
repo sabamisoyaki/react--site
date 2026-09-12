@@ -12,31 +12,137 @@
 - Read existing route, schema, and service patterns before changing behavior.
 - Keep changes scoped to the requested issue. Do not refactor unrelated areas unless required to finish safely.
 - Never log secrets or copy values from `.env.local`.
-- Do not perform destructive git or database operations unless the user explicitly asked for them.
-- Git read-only commands such as `git status`, `git diff`, `git log`, and `git show` are allowed.
-- Do not run history, branch, or PR lifecycle commands such as `git add`, `git commit`, `git push`, `git tag`, `gh pr create`, or `gh pr merge`.
-- `gh pr view`, `gh pr diff`, `gh pr review`, and `gh pr comment` are allowed only when the user explicitly asks for PR inspection, review submission, or commenting.
-- When commit, push, PR creation, or merge steps are needed, provide the exact commands for the user to run instead of executing them.
+- Destructive database operations — `DROP`, `TRUNCATE`, an unscoped `DELETE` or `UPDATE`, a
+  migration reset — follow the same four steps as destructive git below: permission, inventory,
+  recovery point, report. One difference matters enough to state: PostgreSQL has no reflog. A
+  dropped table is gone unless a dump was taken first, so the recovery point has to be a dump or
+  an explicit statement from the user that the data is disposable — never an assumption that it
+  probably is.
+
+## Git
+
+Permission follows what a command does to the repository, not what it is called. An unlisted
+command is judged by which group its effect puts it in.
+
+- **Read-only — always allowed, no need to ask.** Anything that leaves the working tree, index,
+  refs, and remotes untouched: `status`, `diff`, `log`, `show`, `ls-files`, `ls-tree`,
+  `check-ignore`, `branch --show-current`, `branch --contains`, `rev-list`, `reflog`,
+  `stash list`, `gh pr view`, `gh pr diff`.
+- **Local writes — allowed, no permission needed.** `git add`, `git commit`, `git switch -c` /
+  `git checkout -b`, `git tag`. These stay on the machine and are recoverable, so commit and branch
+  whenever it helps the work rather than stopping to ask. Keep each commit scoped to one change and
+  write a message that says why, not just what.
+- **Outward-facing — confirm every single time.** `git push`, `gh pr create`, `gh pr merge`,
+  `gh pr review`, `gh pr comment`. Other people see the result and a local reset does not take it
+  back. Ask immediately before each one and wait for the answer. Approval never carries over:
+  having pushed this branch earlier, or having been told "go ahead" on the previous step, is not
+  authorization for the next one. Say what will become visible to whom before asking.
+- **Destructive — explicit permission, and only once a way back exists.** `git reset --hard`,
+  `git push --force`, `git rebase`, `git clean`, `git rm`, `git restore`,
+  `git checkout -- <path>`, `git stash drop` / `git stash clear`, branch or tag deletion, and
+  anything that rewrites history. Do not reach for one as a shortcut past a problem; there is almost always
+  a non-destructive route, and that route is the default. When one is genuinely required, work
+  through this order and do not compress it:
+
+  1. **Permission.** The user has to have named that operation, or approved it after you described
+     it. A general "clean this up" or "fix the branch" is not authorization.
+  2. **Inventory.** Read what is about to be lost and report it back in concrete terms — the
+     commits (`git log --oneline`), the uncommitted changes (`git status`), the files. Never
+     describe the blast radius from assumption; look first.
+  3. **Recovery point.** Leave a way back before touching anything: tag or branch the current HEAD
+     (`git branch backup/<what> HEAD`), and write down the SHA. Note what this does not cover —
+     branching HEAD saves committed work only. Uncommitted changes live in no ref and are not in
+     the reflog, so discarding them needs a stash or a copy of the files, made first.
+  4. **Run it, then report.** State what was destroyed and name the recovery point, so the user can
+     undo it without asking how.
+
+  If any step cannot be completed — the permission is ambiguous, the inventory cannot be read, no
+  recovery point is possible — stop and say so instead of proceeding.
+
+Commit messages are written in **Japanese** — subject and body alike, on every commit,
+whatever language the code, the surrounding documents, or the conversation behind the change
+happen to be in. Conventional-commit prefixes (`fix:`, `chore(agents):`) stay as they are; the
+prose after them is Japanese.
+
+Write them for someone who was not there. Say what was wrong and why it mattered, not only what
+moved. Do not lean on context the reader cannot reach — a review, a chat, a session, a local
+branch on your machine — because none of that survives into the log. If a reason is worth giving,
+spell the reason out.
+
+Two things to check when committing:
+
+- Confirm the branch with `git branch --show-current` before `git add`. The checkout can change
+  outside the session (GitHub Desktop, another terminal), so the branch reported at the start of
+  the session is not reliable.
+- Committing triggers husky + lint-staged, which rewrites staged `.ts` / `.tsx` / `.js` / `.jsx` /
+  `.json` / `.css` / `.scss` files with `biome format --write`, so the committed tree can differ from
+  what the validation gate saw. Markdown is in the lint-staged glob but Biome 2.3.14 does not process
+  it, and `biome.json` sets `vcs.useIgnoreFile`, so `.md` and everything under `/docs` pass through
+  untouched.
+
+## docs/
+
+`/docs` is **never tracked**. It is a local workspace for AI-written research, audits, and plans,
+and the exclusion covers everything under it — the subfolder indexes and `docs/README.md` itself
+included. There are no per-file exceptions.
+
+- Do not `git add -f` anything under `docs/` to get around the exclusion.
+- Write freely there. Those files are for the machine they were written on, not for the repository.
+- A document that genuinely has to reach everyone who clones the repo does not belong in `docs/`.
+  Put the durable rule in this file, or next to the code it describes.
+
+The consequence is deliberate and worth stating plainly: someone who clones this repository gets
+none of it, and neither does a fresh agent session on another machine.
 
 ## Validation
 
-- Standard local gate for code-only work:
-  - `npm run codex:quick`
-- Schema and migration gate for Prisma work:
-  - `npm run codex:schema`
-- DB connectivity gate for DB-backed work:
-  - `npm run codex:db`
-- Full pre-handoff gate for high-risk changes:
-  - `npm run codex:full`
+- Use Node.js 24.x and installed dependencies. On Windows PowerShell, use `npm.cmd`
+  instead of `npm` if the execution policy blocks `npm.ps1`; no policy change is needed.
+  `node scripts/codex-harness.mjs <quick|schema|db|full>` also works directly.
+- For code changes, run `npm run codex:quick`: regenerate Prisma Client, generate Next.js
+  route types, lint, run all `tests/**/*.test.mjs`, and typecheck. Prisma generation needs
+  `DATABASE_URL` in `.env.local`, `.env`, or the process environment, but does not connect to DB.
+- For Prisma schema, migrations, or augment changes, also run `npm run codex:schema`:
+  Prisma validation and an augment check that fails if generated SQL is missing.
+  This does not replay SQL, check applied-file checksums, or verify the live DB schema.
+  Review raw-SQL removal warnings and any hand-written inverse SQL separately.
+- For DB-backed behavior changes, also run `npm run codex:db`: configuration, optional
+  SSH tunnel, and migration status. This is a connectivity/history check, not a behavior test.
+- For auth, authorization, extension-token lifecycle, migration SQL/generation, or destructive
+  data behavior changes, run `npm run codex:full` (quick + schema + db + production build).
+  A successful full run covers the individual gates; do not repeat them without a reason.
+- For documentation-only changes, check the changed instructions, links, and commands;
+  application gates are not required unless executable behavior also changed.
+- If DB access is unavailable, complete independent checks and run `npm run build` separately
+  when full validation is required. Report passed, failed, and unrun checks distinctly.
 
 ## Database Workflow
 
-- Prisma changes must follow this order:
+- Separate migration authoring from deployment. `migrate dev` (including `--create-only`)
+  is only for a dedicated development database with a disposable shadow database. Never point
+  it at a shared, staging, production, or otherwise non-disposable database.
+- Before DB commands, identify the target environment without printing credentials.
+  CLI commands below assume the intended `DATABASE_URL` is loaded. For an env file, use
+  `node --env-file=<selected-env-file> node_modules/prisma/build/index.js <arguments>`;
+  for augment use `node --env-file=<selected-env-file> --import tsx scripts/prisma-augment.ts`.
+  The filename `.env.local` does not prove the database is disposable.
+- On the dedicated development database, follow this order:
   1. Edit `prisma/schema.prisma`
   2. Create a skeleton migration with `npx prisma migrate dev --create-only --name <name>`
-  3. Run `node --import tsx scripts/prisma-augment.ts`
-  4. Review `prisma/migrations/<timestamp>_<name>/migration.sql`
-  5. Apply with `npx prisma migrate dev`
+  3. Verify a new migration directory was created for this change and is the latest directory.
+     Confirm its migration is unapplied before writing: augment selects the latest file and
+     does not query the database to protect applied migrations.
+  4. Run `node --import tsx scripts/prisma-augment.ts`
+  5. Review `prisma/migrations/<timestamp>_<name>/migration.sql`, then run `npm run codex:schema`
+  6. Apply to the dedicated development database with `npx prisma migrate dev`
+  7. Regenerate Prisma Client with `npx prisma generate` (Prisma 7 does not do this automatically),
+     then run the required validation gates.
+- If a dedicated development/shadow database is unavailable, prepare a new, unapplied SQL
+  migration and complete static checks. Report that migration replay/application is unverified;
+  do not substitute the shared database for development or run a reset to unblock the work.
+- Deployment to shared/staging/production databases uses reviewed, committed migrations with
+  `npx prisma migrate deploy` only when that deployment is in the user's authorized scope.
+  Run `npx prisma generate` for the application build and check migration status after deployment.
 - If Prisma tries to generate follow-up diff noise around partial indexes, stop and inspect before proceeding.
 - シャドウDB は履歴を空の Postgres へ先頭から再生する。`20260430010000_init`
   より前に何かを挿すと再生が止まり、`migrate dev` が使えなくなる。
@@ -49,6 +155,8 @@
 ## Delivery Format
 
 - For implementation tasks, finish with the exact commands you ran and whether they passed.
-- When handoff requires a commit, push, PR creation, or merge, include suggested commands and a suggested commit message, but do not execute them.
+- After committing, report the branch and the short SHA. When a push, PR creation, or merge is the
+  next step, say what it will make visible and to whom, and run it only once the user says to —
+  the outward-facing rule in the Git section, restated here so the two do not drift apart.
 - For review tasks, lead with concrete findings, file references, and missing tests.
 - If a task is blocked by DB connectivity, state whether `codex:quick` and `codex:schema` still pass.
